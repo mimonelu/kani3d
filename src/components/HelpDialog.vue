@@ -19,7 +19,7 @@ const keys: [string, string][] = [
   ['矢印 / PageUp・PageDown', '5cm 移動（水平 / 垂直）'],
   ['X / Y / Z', '45° 回転（Shift で逆回転）'],
   ['Ctrl+D', '複製'],
-  ['Ctrl+G / Ctrl+Shift+G', '結合 / 結合解除'],
+  ['Ctrl+G', '結合（複数選択時）/ 結合解除（結合物を 1 つ選択時）'],
   ['Delete / Backspace', '削除'],
   ['Ctrl+A / Esc', '全選択 / 選択解除'],
   ['F', '選択物が映るようにカメラを合わせる'],

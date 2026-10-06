@@ -1,5 +1,5 @@
 /** Vue 側の共有状態。three.js オブジェクトはリアクティブにしない（shallowRef + markRaw） */
-import { markRaw, reactive, shallowRef } from 'vue'
+import { computed, markRaw, reactive, shallowRef } from 'vue'
 import type { Editor, EditorState } from './core/Editor'
 import { downloadBlob, FILE_EXT, parseDoc, stringifyDoc } from './core/io'
 import { DEFAULT_COLOR } from './core/palette'
@@ -134,6 +134,16 @@ export async function exportGlbFile(): Promise<void> {
   } catch (e) {
     notify(`GLB 出力失敗: ${(e as Error).message}`)
   }
+}
+
+/** 結合ボタンの動作: 複数選択なら結合、結合物 1 つなら結合解除 */
+export const mergeMode = computed<'merge' | 'unmerge' | null>(() =>
+  state.selection.length >= 2 ? 'merge' : state.canUnmerge ? 'unmerge' : null,
+)
+
+export function toggleMerge(): void {
+  if (mergeMode.value === 'merge') mergeSelection()
+  else if (mergeMode.value === 'unmerge') editorRef.value?.unmergeSelected()
 }
 
 export function mergeSelection(): void {

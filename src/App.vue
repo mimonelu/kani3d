@@ -4,7 +4,7 @@ import SidePanel from './components/SidePanel.vue'
 import ToolBar from './components/ToolBar.vue'
 import ViewportPane from './components/ViewportPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
-import { editorRef, mergeSelection, requestOpen, saveScene, ui } from './store'
+import { editorRef, requestOpen, saveScene, toggleMerge, ui } from './store'
 
 function onKey(e: KeyboardEvent) {
   const ed = editorRef.value
@@ -28,7 +28,7 @@ function onKey(e: KeyboardEvent) {
       if (k === 'z') return e.shiftKey ? ed.redo() : ed.undo(), true
       if (k === 'y') return ed.redo(), true
       if (k === 'd') return ed.duplicateSelected(), true
-      if (k === 'g') return e.shiftKey ? ed.unmergeSelected() : mergeSelection(), true
+      if (k === 'g') return e.shiftKey ? ed.unmergeSelected() : toggleMerge(), true
       if (k === 'a') return ed.selectAll(), true
       if (k === 's') return saveScene(), true
       if (k === 'o') return requestOpen(), true

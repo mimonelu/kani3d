@@ -20,7 +20,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | 表示グリッド(10cm)・スナップ単位(5cm)・回転刻み・初期サイズ(10cm) | `core/constants.ts`（`GRID` は表示のみ、スナップは `SNAP`） |
 | フラット表示切替（エディタ上の見た目のみ。全マテリアルの `flatShading`、GLB には影響なし） | `Editor.setFlatShading`、記憶は `store.ts` |
 | カメラのフィット（全体表示・起動/読み込み時の自動フィット） | `Editor.frameAll / fitBox / resetView` |
-| 結合解除 | `Editor.unmergeSelected`（データは `MeshObject.sources`） |
+| 結合解除 | `Editor.unmergeSelected`（データは `MeshObject.sources`）。ボタンは結合と共用（`store.mergeMode`: 複数選択→結合、結合物 1 つ→解除） |
 | 結合（CSG・修復・面数削減） | `core/merge.ts` / テスト `core/merge.test.ts` |
 | 結合結果の検査（穴・内部面・裏返り） | `core/meshCheck.ts`、表示は `Editor.setXray` / `ViewportPane.vue` の HUD |
 | 保存形式・GLB 出力 | `core/io.ts`、型は `core/types.ts` |

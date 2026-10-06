@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { FILE_EXT } from '../core/io'
-import { editorRef, exportGlbFile, mergeSelection, newScene, openSceneFile, saveScene, state, toggleFlatShading, ui } from '../store'
+import { editorRef, exportGlbFile, mergeMode, newScene, openSceneFile, saveScene, state, toggleFlatShading, toggleMerge, ui } from '../store'
 
 const fileInput = ref<HTMLInputElement>()
 
@@ -29,7 +29,7 @@ function confirmNew() {
       <button @click="confirmNew">新規</button>
       <button @click="openFile" title="Ctrl+O">開く</button>
       <button @click="saveScene" title="Ctrl+S">保存</button>
-      <button class="primary" @click="exportGlbFile">GLB出力</button>
+      <button @click="exportGlbFile">GLB出力</button>
       <input ref="fileInput" type="file" :accept="`${FILE_EXT},.json`" hidden @change="onFile" />
     </div>
     <div class="group">
@@ -39,8 +39,13 @@ function confirmNew() {
     <div class="group">
       <button :disabled="!state.selection.length" @click="editorRef?.duplicateSelected()" title="Ctrl+D">複製</button>
       <button :disabled="!state.selection.length" @click="editorRef?.deleteSelected()" title="Delete">削除</button>
-      <button :disabled="state.selection.length < 2" @click="mergeSelection" title="Ctrl+G">結合</button>
-      <button :disabled="!state.canUnmerge" @click="editorRef?.unmergeSelected()" title="Ctrl+Shift+G">結合解除</button>
+      <button
+        :disabled="mergeMode === null"
+        :title="mergeMode === 'unmerge' ? '結合解除 (Ctrl+G)' : '複数選択して結合 (Ctrl+G)'"
+        @click="toggleMerge"
+      >
+        {{ mergeMode === 'unmerge' ? '結合解除' : '結合' }}
+      </button>
     </div>
     <div class="group">
       <button title="すべてのオブジェクトが映るようにカメラを合わせる (Home)" @click="editorRef?.frameAll()">全体表示</button>
@@ -70,7 +75,7 @@ function confirmNew() {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 6px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -84,20 +89,33 @@ function confirmNew() {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 6px;
+  border-radius: 6px;
+  padding: 4px 6px;
 }
+/* iOS のセグメント風: 隙間なし・角丸は両端のみ・区切りは細線 */
 .group {
   display: flex;
-  gap: 2px;
-  padding-left: 12px;
+}
+.group button {
+  border-radius: 0;
+}
+.group button + button {
   border-left: 1px solid var(--border);
+}
+.group button:first-of-type {
+  border-radius: 7px 0 0 7px;
+}
+.group button:last-of-type {
+  border-radius: 0 7px 7px 0;
+}
+.group button:only-of-type {
+  border-radius: 7px;
 }
 button {
   background: var(--button);
   border: none;
-  border-radius: 4px;
-  padding: 5px 10px;
+  border-radius: 7px;
+  padding: 5px 11px;
   cursor: pointer;
   font-size: 13px;
 }
@@ -112,8 +130,8 @@ button.active {
   background: var(--accent);
   color: #1b1f24;
 }
-button.primary {
-  background: var(--primary);
+button.active:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 .message {
   margin-left: auto;

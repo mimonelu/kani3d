@@ -1,18 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { PALETTE } from '../core/palette'
 import { PRIMITIVES, type PrimitiveDef } from '../core/primitives'
 import { renderPrimitiveThumbnails } from '../core/thumbnails'
 import { editorRef, state } from '../store'
 
+const activeColor = () => state.selectionColor ?? state.currentColor
+
+// サムネイルは現在のカラー（パレットで強調されている色）で描く
 const thumbs = ref<Record<string, string>>({})
-onMounted(() => {
+function updateThumbs() {
   try {
-    thumbs.value = renderPrimitiveThumbnails()
+    thumbs.value = renderPrimitiveThumbnails(PALETTE[activeColor()].hex)
   } catch {
     /* WebGL 不可の環境ではラベルのみ */
   }
-})
+}
+onMounted(updateThumbs)
+watch(activeColor, updateThumbs)
 
 const categories = computed(() => {
   const map = new Map<string, PrimitiveDef[]>()
@@ -23,7 +28,6 @@ const categories = computed(() => {
 function onDragStart(e: DragEvent, id: string) {
   e.dataTransfer?.setData('application/x-kani-primitive', id)
 }
-const activeColor = () => state.selectionColor ?? state.currentColor
 </script>
 
 <template>

@@ -90,14 +90,14 @@ test('結合解除: 結合後の移動・色変更を引き継いで元に戻る
     k.nudge(0, 0, 4) // 結合後に 20cm 移動
     k.setColor(0)
   })
-  await expect(page.getByRole('button', { name: '結合解除' })).toBeEnabled()
-  await page.keyboard.press('Control+Shift+g')
+  await expect(page.getByRole('button', { name: '結合解除' })).toBeEnabled() // 結合物 1 つ選択 → 結合解除
+  await page.getByRole('button', { name: '結合解除' }).click()
   const data = await sceneData(page)
   expect(data.map((d: any) => d.primitive).sort()).toEqual(['cone', 'cube'])
   const cube = data.find((d: any) => d.primitive === 'cube')!
   expect(cube.position.map((v) => +v.toFixed(4))).toEqual([0, 0.05, 0.2])
   expect(data.every((d) => d.color === 0)).toBe(true)
-  await expect(page.getByRole('button', { name: '結合解除' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '結合', exact: true })).toBeEnabled() // 2 つ選択 → 結合
   await page.keyboard.press('Control+z')
   expect(await sceneData(page)).toHaveLength(1)
 })
@@ -203,4 +203,12 @@ test('結合物の検査結果表示と X線表示（GLB には影響しない�
 
   await xray.click()
   expect(await page.evaluate(() => (window as any).__kani.scene.getObjectByName('結合オブジェクト').children.length)).toBe(0)
+})
+
+test('プリミティブのサムネイルは現在のカラーで描かれる', async ({ page }) => {
+  const src = () => page.locator('[data-primitive="cube"] img').getAttribute('src')
+  await expect(page.locator('[data-primitive="cube"] img')).toBeVisible()
+  const before = await src()
+  await page.locator('[data-color="0"]').click()
+  await expect.poll(src).not.toBe(before)
 })
