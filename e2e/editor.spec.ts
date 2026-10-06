@@ -437,7 +437,7 @@ test('画像出力: 余白どおりに全体を収め、入力内容は閉じて
       },
       { padding, preset },
     )
-  for (const preset of ['front', 'iso', 'top']) {
+  for (const preset of ['front', 'iso-ru', 'iso-ld', 'top']) {
     const m0 = await margins(0, preset)
     // どちらかの軸で両端ぴったり（±1px）、もう一方の軸は左右・上下が均等
     const tightX = m0[0] <= 1 && m0[2] <= 1
@@ -452,12 +452,12 @@ test('画像出力: 余白どおりに全体を収め、入力内容は閉じて
   await page.getByRole('button', { name: '画像出力' }).click()
   await page.locator('[data-field="fileName"]').fill('keep-me')
   await page.locator('[data-field="opacity"]').fill('40')
-  await page.locator('[data-field="cameraPreset"]').selectOption('iso')
+  await page.locator('[data-field="cameraPreset"]').selectOption('iso-ru')
   await page.locator('[data-field="padding"]').fill('10')
   await page.getByRole('button', { name: 'キャンセル' }).click()
   await page.getByRole('button', { name: '画像出力' }).click()
   await expect(page.locator('[data-field="fileName"]')).toHaveValue('keep-me')
   await expect(page.locator('[data-field="opacity"]')).toHaveValue('40')
-  await expect(page.locator('[data-field="cameraPreset"]')).toHaveValue('iso')
+  await expect(page.locator('[data-field="cameraPreset"]')).toHaveValue('iso-ru')
   await expect(page.locator('[data-field="padding"]')).toHaveValue('10')
 })

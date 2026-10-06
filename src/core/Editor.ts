@@ -51,7 +51,7 @@ import { applyTriangleColors, meshPolygons, paintMeshData, primitiveTriColors } 
 import { buildPrimitiveGeometry, compactParams, getPrimitive, polyIdsOf, resolveParams, type PrimitiveParams } from './primitives'
 import type { MeshData, Quat, SceneDoc, SceneObjectData, Vec3 } from './types'
 
-export type CameraPreset = 'view' | 'front' | 'back' | 'left' | 'right' | 'top' | 'iso'
+export type CameraPreset = 'view' | 'iso-ru' | 'iso-rd' | 'iso-lu' | 'iso-ld' | 'front' | 'back' | 'left' | 'right' | 'top'
 
 export interface RenderCamera {
   position: Vec3
@@ -71,7 +71,10 @@ export interface RenderOptions {
 }
 
 export const CAMERA_PRESETS: Record<Exclude<CameraPreset, 'view'>, { label: string; dir: Vec3; up?: Vec3 }> = {
-  iso: { label: '斜め', dir: [1, 0.8, 1.2] },
+  'iso-ru': { label: '斜め右上', dir: [1, 0.8, 1.2] },
+  'iso-rd': { label: '斜め右下', dir: [1, -0.8, 1.2] },
+  'iso-lu': { label: '斜め左上', dir: [-1, 0.8, 1.2] },
+  'iso-ld': { label: '斜め左下', dir: [-1, -0.8, 1.2] },
   front: { label: '正面', dir: [0, 0, 1] },
   back: { label: '背面', dir: [0, 0, -1] },
   right: { label: '右', dir: [1, 0, 0] },

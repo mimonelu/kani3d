@@ -190,7 +190,7 @@ const axes = ['X', 'Y', 'Z']
                 data-field="padding"
                 :disabled="form.cameraPreset === 'view' || form.cameraPreset === 'custom'"
               />
-              <span class="dim">px（全体を収めるカメラのとき。0 で画像の端ぴったり）</span>
+              <span class="dim">px</span>
             </span>
           </label>
           <div v-for="kind in ['position', 'target'] as const" :key="kind" class="row">
