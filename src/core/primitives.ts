@@ -20,6 +20,7 @@ import {
 } from 'three'
 import { mergeVertices, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { BASE_SIZE } from './constants'
+import { coplanarGroups } from './paint'
 
 export type PrimitiveCategory = '基本' | '柱・錐' | '特殊'
 export type ParamValue = number | boolean
@@ -41,6 +42,12 @@ export interface PrimitiveDef {
   /** 出力法線を滑らかにするか（クリース角 60°） */
   smooth: (p: PrimitiveParams) => boolean
   create: (p: PrimitiveParams) => BufferGeometry
+  /**
+   * ペイント単位のポリゴンの決め方。
+   * coplanar（既定）: 同一平面でつながった三角形をまとめる（側面の四角形・上下の多角形面など）
+   * pairs: 生成順に 2 枚ずつ（分割した立方体のマス目）
+   */
+  polygons?: 'coplanar' | 'pairs'
 }
 
 const S = BASE_SIZE
@@ -139,7 +146,20 @@ const sides = (def: number): ParamDef => ({ key: 'sides', label: '角数', type:
 const half = (label: string): ParamDef => ({ key: 'half', label, type: 'bool', default: false })
 
 export const PRIMITIVES: readonly PrimitiveDef[] = [
-  { id: 'cube', label: '立方体', category: '基本', params: [], size: cube, smooth: () => false, create: () => new BoxGeometry(2, 2, 2) },
+  {
+    id: 'cube',
+    label: '立方体',
+    category: '基本',
+    params: [
+      { key: 'segX', label: '分割数 X', type: 'int', min: 1, max: 16, default: 1 },
+      { key: 'segY', label: '分割数 Y', type: 'int', min: 1, max: 16, default: 1 },
+      { key: 'segZ', label: '分割数 Z', type: 'int', min: 1, max: 16, default: 1 },
+    ],
+    size: cube,
+    smooth: () => false,
+    create: (p) => new BoxGeometry(2, 2, 2, num(p, 'segX'), num(p, 'segY'), num(p, 'segZ')),
+    polygons: 'pairs',
+  },
   {
     id: 'sphere',
     label: '球体',
@@ -307,11 +327,21 @@ function cleanTriangles(g: BufferGeometry): BufferGeometry {
   return r
 }
 
+/** 同一平面でつながった三角形に同じ番号を振る（非インデックスの position から） */
+function coplanarPolygons(g: BufferGeometry): Int32Array {
+  const p = g.getAttribute('position').array
+  return coplanarGroups(p.length / 9, (t, k) => [p[t * 9 + k * 3], p[t * 9 + k * 3 + 1], p[t * 9 + k * 3 + 2]])
+}
+
+/** 三角形 → ポリゴン番号（ペイント単位）。geometry.userData.polyIds に入る */
+export const polyIdsOf = (g: BufferGeometry): Int32Array => g.userData.polyIds as Int32Array
+
 const cache = new Map<string, BufferGeometry>()
 
 /**
  * 正規化済みのプリミティブ形状（position/normal のみ、インデックス付き、group なし）。
- * 戻り値は毎回 clone なので呼び出し側で groups を書き換えてよい。
+ * userData.polyIds に三角形ごとのポリゴン番号（ペイント単位）を持つ。
+ * 戻り値は毎回 clone なので呼び出し側で groups・index を書き換えてよい（polyIds は共有なので書き換えない）。
  */
 export function buildPrimitiveGeometry(id: string, rawParams?: Partial<PrimitiveParams>): BufferGeometry {
   const def = getPrimitive(id)
@@ -330,10 +360,15 @@ export function buildPrimitiveGeometry(id: string, rawParams?: Partial<Primitive
     g.translate(-bb.min.x - sz.x / 2, -bb.min.y - sz.y / 2, -bb.min.z - sz.z / 2)
     const size = def.size(params)
     g.scale(size[0] / sz.x, size[1] / sz.y, size[2] / sz.z)
+    // ポリゴン番号（三角形の順序は以降の法線計算・溶接でも保たれる）
+    const triCount = g.getAttribute('position').count / 3
+    const polyIds =
+      def.polygons === 'pairs' ? Int32Array.from({ length: triCount }, (_, t) => t >> 1) : coplanarPolygons(g)
     // 法線: 曲面は 60° 未満の折れを滑らかに、それ以外はフラット
     g = toCreasedNormals(g, def.smooth(params) ? Math.PI / 3 : 0.01)
     g = mergeVertices(g, 1e-6)
     g.computeBoundingBox()
+    g.userData.polyIds = polyIds
     base = g
     if (cache.size > 200) cache.clear() // スライダー操作で無制限に増えないように
     cache.set(key, base)

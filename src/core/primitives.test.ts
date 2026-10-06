@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
 import { checkMesh } from './meshCheck'
-import { PRIMITIVES, buildPrimitiveGeometry, compactParams, resolveParams, type PrimitiveParams } from './primitives'
+import { PRIMITIVES, buildPrimitiveGeometry, compactParams, polyIdsOf, resolveParams, type PrimitiveParams } from './primitives'
 
 /** 各パラメータを既定・最小・最大・true/false・各選択肢に振った組み合わせ */
 function variants(id: string): PrimitiveParams[] {
@@ -41,7 +41,7 @@ describe('primitives', () => {
         expect([r.open, r.nonManifold, r.flipped]).toEqual([0, 0, 0])
         const nor = g.getAttribute('normal')
         for (let i = 0; i < nor.count; i++) expect(new Vector3().fromBufferAttribute(nor, i).length()).toBeCloseTo(1, 3)
-        expect(idx.length / 3).toBeLessThanOrEqual(1100)
+        expect(idx.length / 3).toBeLessThanOrEqual(16 * 16 * 6 * 2)
       })
     }
   }
@@ -51,5 +51,21 @@ describe('primitives', () => {
     expect(resolveParams('pipe', { thickness: 0.43 })).toEqual({ sides: 16, thickness: 0.45 })
     expect(compactParams('prism', resolveParams('prism', { sides: 6 }))).toEqual({ sides: 6 })
     expect(compactParams('prism', resolveParams('prism'))).toBeUndefined()
+  })
+})
+
+describe('ポリゴン番号（ペイント単位）', () => {
+  const polyCount = (id: string, p?: PrimitiveParams) => new Set(polyIdsOf(buildPrimitiveGeometry(id, p))).size
+  it('立方体: 分割数どおりのマス目（各 2 三角形）', () => {
+    expect(polyCount('cube')).toBe(6)
+    expect(polyCount('cube', { segX: 8, segY: 8, segZ: 8 })).toBe(6 * 64)
+    expect(polyCount('cube', { segX: 2, segY: 3, segZ: 4 })).toBe(2 * (2 * 3 + 3 * 4 + 2 * 4))
+  })
+  it('柱: 側面の四角形 + 上下の多角形面', () => {
+    expect(polyCount('prism', { sides: 6 })).toBe(6 + 2)
+    expect(polyCount('prism', { sides: 16 })).toBe(16 + 2)
+  })
+  it('多面体: 正十二面体は 12 面（五角形 = 3 三角形）', () => {
+    expect(polyCount('polyhedron', { faces: 12 })).toBe(12)
   })
 })

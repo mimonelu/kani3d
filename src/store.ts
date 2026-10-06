@@ -20,6 +20,7 @@ export const state = reactive<EditorState>({
   xray: false,
   selectionIssues: null,
   selectionPrimitive: null,
+  paintMode: false,
   canUndo: false,
   canRedo: false,
 })
@@ -154,6 +155,17 @@ export const mergeMode = computed<'merge' | 'unmerge' | null>(() =>
 export function toggleMerge(): void {
   if (mergeMode.value === 'merge') mergeSelection()
   else if (mergeMode.value === 'unmerge') editorRef.value?.unmergeSelected()
+}
+
+/** 選択物の面数を最適化（同色・同一平面の面をまとめる） */
+export function optimizeSelection(): void {
+  try {
+    const r = editorRef.value?.optimizeSelected()
+    if (!r) return
+    notify(r.optimized ? `面数を最適化しました（${r.before} → ${r.after} 三角形）` : 'これ以上は削減できません')
+  } catch (e) {
+    notify(`最適化失敗: ${(e as Error).message}`)
+  }
 }
 
 export function mergeSelection(): void {

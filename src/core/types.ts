@@ -25,6 +25,8 @@ export interface PrimitiveObject extends Transform {
   color: number
   /** 形状オプション（既定値と異なるものだけ。core/primitives.ts の ParamDef 参照） */
   params?: Record<string, number | boolean>
+  /** ポリゴン単位の塗り（ポリゴン番号 → 色ID）。color と異なるものだけ。params を変えると無効になる */
+  faceColors?: Record<number, number>
 }
 
 export interface MeshObject extends Transform {

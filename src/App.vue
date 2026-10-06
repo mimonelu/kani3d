@@ -4,7 +4,7 @@ import SidePanel from './components/SidePanel.vue'
 import ToolBar from './components/ToolBar.vue'
 import ViewportPane from './components/ViewportPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
-import { editorRef, requestOpen, saveScene, toggleMerge, ui } from './store'
+import { editorRef, requestOpen, saveScene, state, toggleMerge, ui } from './store'
 
 const isTextEntry = (t: HTMLElement) =>
   t.tagName === 'TEXTAREA' ||
@@ -42,6 +42,7 @@ function onKey(e: KeyboardEvent) {
       if (k === 'o') return requestOpen(), true
       return false
     }
+    if (e.key === 'Escape' && state.paintMode) return ed.setPaintMode(false), true
     switch (e.key) {
       case 'Delete':
       case 'Backspace': return ed.deleteSelected(), true
@@ -59,6 +60,7 @@ function onKey(e: KeyboardEvent) {
       case 'y':
       case 'z': return ed.rotateSelected(k, e.shiftKey ? -1 : 1), true
       case 'f': return e.shiftKey ? ed.frameAll() : ed.focusSelection(), true
+      case 'p': return ed.setPaintMode(!state.paintMode), true
     }
     return false
   })()

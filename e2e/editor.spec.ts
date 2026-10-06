@@ -258,3 +258,36 @@ test('未選択で追加すると画面中央に見えている床に置かれ�
   expect(Math.abs(p[0])).toBeLessThan(0.1) // 画面中央付近（NDC）
   expect(Math.abs(p[1])).toBeLessThan(0.1)
 })
+
+test('ペイント: 分割した立方体のマス 1 つだけを塗り、最適化で面数が減る', async ({ page }) => {
+  await page.locator('[data-primitive="cube"]').click()
+  for (const k of ['segX', 'segY', 'segZ']) await page.locator(`.shape-options [data-param="${k}"]`).fill('8')
+  const tris = () => page.evaluate(() => (window as any).__kani.currentState().triangles)
+  expect(await tris()).toBe(6 * 64 * 2)
+
+  await page.locator('[data-color="0"]').click() // 塗る色（ペイント前に選ぶとオブジェクト全体も赤になる）
+  await page.getByRole('button', { name: 'ペイント' }).click()
+  await page.locator('[data-color="4"]').click() // ペイント中は色の選択のみ
+  const canvas = page.locator('canvas')
+  const box = (await canvas.boundingBox())!
+  await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } }) // 画面中央 = 立方体
+  const d = (await page.evaluate(() => (window as any).__kani.toData()[0])) as any
+  expect(d.color).toBe(0)
+  expect(Object.values(d.faceColors)).toEqual([4]) // 1 マスだけ
+
+  // 形状オプションはロックされ、リセットで解除
+  await expect(page.locator('.shape-options .painted')).toBeVisible()
+  await page.keyboard.press('Escape') // ペイント終了
+  await expect(page.getByRole('button', { name: 'ペイント' })).not.toHaveClass(/active/)
+
+  await page.getByRole('button', { name: '最適化' }).click()
+  const after = await tris()
+  expect(after).toBeLessThan(60) // 768 → 塗ったマス周辺だけ細かい
+  const groups = await page.evaluate(() => (window as any).__kani.toData()[0].mesh.groups.map((g: any) => g.color))
+  expect(groups.sort()).toEqual([0, 4])
+  await expect(page.locator('.hud')).toContainText('検査: 問題なし')
+
+  // 結合解除で塗った立方体に戻る
+  await page.getByRole('button', { name: '結合解除' }).click()
+  expect((await page.evaluate(() => (window as any).__kani.toData()[0])).faceColors).toBeTruthy()
+})

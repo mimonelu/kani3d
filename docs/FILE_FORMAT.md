@@ -10,6 +10,7 @@
       "primitive": "cube",            // core/primitives.ts の id
       "color": 11,                    // core/palette.ts のインデックス
       "params": { "sides": 6 },       // 省略可: 形状オプション（既定値と異なるものだけ。core/primitives.ts の ParamDef）
+      "faceColors": { "12": 0 },      // 省略可: ポリゴン単位の塗り（ポリゴン番号 → 色ID。params に依存）
       "position": [0, 0.1, 0],        // m（Y-up、床は y=0）
       "quaternion": [0, 0, 0, 1],
       "scale": [1, 1, 1]

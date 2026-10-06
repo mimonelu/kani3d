@@ -46,7 +46,8 @@ import { mergeObjects } from './merge'
 import { checkMesh, type MeshIssues } from './meshCheck'
 import { geometryFromMeshData, setSingleColor, triangleCount } from './meshData'
 import { DEFAULT_COLOR, paletteMaterials } from './palette'
-import { buildPrimitiveGeometry, compactParams, getPrimitive, resolveParams, type PrimitiveParams } from './primitives'
+import { applyTriangleColors, meshPolygons, paintMeshData, primitiveTriColors } from './paint'
+import { buildPrimitiveGeometry, compactParams, getPrimitive, polyIdsOf, resolveParams, type PrimitiveParams } from './primitives'
 import type { MeshData, Quat, SceneDoc, SceneObjectData, Vec3 } from './types'
 
 export interface EditorState {
@@ -66,7 +67,9 @@ export interface EditorState {
   /** 選択中の結合物の検査結果（合計）。結合物を選択していなければ null */
   selectionIssues: { open: number; nonManifold: number; flipped: number } | null
   /** 単独選択中のプリミティブとその形状オプション（形状オプション UI 用） */
-  selectionPrimitive: { primitive: string; params: PrimitiveParams } | null
+  selectionPrimitive: { primitive: string; params: PrimitiveParams; painted: boolean } | null
+  /** ペイントモード中 */
+  paintMode: boolean
   /** 選択物に結合解除できるものがある */
   canUnmerge: boolean
   /** ドラッグ中の寸法・角度など（HUD 表示用） */
@@ -76,7 +79,7 @@ export interface EditorState {
 }
 
 type ObjUserData =
-  | { id: string; kind: 'primitive'; primitive: string; params: PrimitiveParams }
+  | { id: string; kind: 'primitive'; primitive: string; params: PrimitiveParams; color: number; faceColors?: Record<number, number> }
   | { id: string; kind: 'mesh'; mesh: MeshData; sources?: SceneObjectData[] }
 
 let idSeq = 0
@@ -101,7 +104,7 @@ export class Editor {
   private frame = 0
   private resizeObserver: ResizeObserver
   /** 左ボタン押下中の状態。clickId は「動かさずに離したら単独選択にする」対象 */
-  private pointer: { id: number; x: number; y: number; dragging: boolean; clickId: string | null } | null = null
+  private pointer: { id: number; x: number; y: number; dragging: boolean; clickId: string | null; painting?: boolean } | null = null
   private dragInfo = ''
   private xray = false
 
@@ -232,8 +235,15 @@ export class Editor {
     let geometry: BufferGeometry
     let ud: ObjUserData
     if (d.kind === 'primitive') {
-      geometry = setSingleColor(buildPrimitiveGeometry(d.primitive, d.params), d.color)
-      ud = { id: d.id, kind: 'primitive', primitive: d.primitive, params: resolveParams(d.primitive, d.params) }
+      ud = {
+        id: d.id,
+        kind: 'primitive',
+        primitive: d.primitive,
+        params: resolveParams(d.primitive, d.params),
+        color: d.color,
+        faceColors: d.faceColors,
+      }
+      geometry = primitiveGeometry(ud)
     } else {
       geometry = geometryFromMeshData(d.mesh)
       ud = { id: d.id, kind: 'mesh', mesh: d.mesh, sources: d.sources }
@@ -256,9 +266,17 @@ export class Editor {
     const t = toTransform(p, q, s)
     const ud = m.userData as ObjUserData
     if (ud.kind === 'primitive') {
-      const color = m.geometry.groups[0]?.materialIndex ?? 0
       const params = compactParams(ud.primitive, ud.params)
-      return { id: ud.id, kind: 'primitive', primitive: ud.primitive, color, ...t, ...(params && { params }) }
+      const faceColors = ud.faceColors && Object.keys(ud.faceColors).length ? { ...ud.faceColors } : undefined
+      return {
+        id: ud.id,
+        kind: 'primitive',
+        primitive: ud.primitive,
+        color: ud.color,
+        ...t,
+        ...(params && { params }),
+        ...(faceColors && { faceColors }),
+      }
     }
     return { id: ud.id, kind: 'mesh', mesh: ud.mesh, ...t, ...(ud.sources && { sources: ud.sources }) }
   }
@@ -357,7 +375,7 @@ export class Editor {
   /** 複数選択時は pivot にまとめてハンドルを付ける（移動・回転のみ。拡縮は単独選択時） */
   private attachTransform(): void {
     const sel = this.selection.map((id) => this.meshById(id)!).filter(Boolean)
-    if (sel.length === 0) {
+    if (sel.length === 0 || this.paintMode) {
       this.gizmo.detach()
       return
     }
@@ -457,6 +475,7 @@ export class Editor {
   setColor(color: number): void {
     this.currentColor = color
     this.emit()
+    if (this.paintMode) return // ペイント中は塗る色の選択のみ
     for (const id of this.selection) {
       const m = this.meshById(id)!
       if (m.geometry.groups.every((g) => g.materialIndex === color)) continue // 変化なしは履歴に積まない
@@ -465,8 +484,13 @@ export class Editor {
         ud.mesh = { ...ud.mesh, groups: [{ start: 0, count: ud.mesh.indices.length, color }] }
         // 結合解除したときも色が引き継がれるよう結合元も塗り替える
         if (ud.sources) ud.sources = recolor(ud.sources, color)
+        setSingleColor(m.geometry, color)
+      } else {
+        // 全体の色変更はポリゴン単位の塗りも上書きする
+        ud.color = color
+        ud.faceColors = undefined
+        this.replaceGeometry(m, primitiveGeometry(ud))
       }
-      setSingleColor(m.geometry, color)
     }
     this.commit()
   }
@@ -509,21 +533,145 @@ export class Editor {
     const next = resolveParams(ud.primitive, { ...ud.params, ...params })
     if (JSON.stringify(next) !== JSON.stringify(ud.params)) {
       const bottom = new Box3().setFromObject(m, true).min.y
-      const color = m.geometry.groups[0]?.materialIndex ?? DEFAULT_COLOR
       ud.params = next
-      const old = m.geometry
-      m.geometry = setSingleColor(buildPrimitiveGeometry(ud.primitive, next), color)
-      old.dispose()
-      if (this.xray) {
-        removeOverlays(m)
-        addOverlays(m)
-      }
+      ud.faceColors = undefined // ポリゴン番号が変わるので塗りは無効（UI 側で確認済み）
+      this.replaceGeometry(m, primitiveGeometry(ud))
       m.updateMatrixWorld(true)
       m.position.y += bottom - new Box3().setFromObject(m, true).min.y
       this.attachTransform()
     }
     if (commit) this.commit()
     this.emit()
+  }
+
+  private replaceGeometry(m: Mesh, g: BufferGeometry): void {
+    const old = m.geometry
+    m.geometry = g
+    old.dispose()
+    removeOverlays(m)
+    if (this.xray) addOverlays(m)
+  }
+
+  // ------------------------------------------------------------ ペイント
+
+  private paintMode = false
+  private paintChanged = false
+  private paintHover: { mesh: Mesh; poly: number } | null = null
+
+  /** ペイントモード: クリック・ドラッグしたポリゴンを現在の色で塗る（移動ハンドルは隠す） */
+  setPaintMode(on: boolean): void {
+    if (this.paintMode === on) return
+    this.cancelDrag()
+    this.paintMode = on
+    this.setPaintHover(null)
+    this.attachTransform()
+    this.renderer.domElement.style.cursor = on ? 'crosshair' : ''
+    this.emit()
+  }
+
+  /** レイが当たったポリゴンを塗る。変化があれば true */
+  private paintHit(hit: { object: Object3D; faceIndex?: number | null }): boolean {
+    const m = hit.object as Mesh
+    const ud = m.userData as ObjUserData
+    if (hit.faceIndex == null) return false
+    const color = this.currentColor
+    if (ud.kind === 'primitive') {
+      const poly = polyIdsOf(m.geometry)[hit.faceIndex]
+      const current = ud.faceColors?.[poly] ?? ud.color
+      if (current === color) return false
+      const fc = { ...ud.faceColors }
+      if (color === ud.color) delete fc[poly]
+      else fc[poly] = color
+      ud.faceColors = Object.keys(fc).length ? fc : undefined
+      this.replaceGeometry(m, primitiveGeometry(ud))
+    } else {
+      const next = paintMeshData(ud.mesh, meshPolygons(ud.mesh)[hit.faceIndex], color)
+      if (next === ud.mesh) return false
+      ud.mesh = next
+      this.replaceGeometry(m, geometryFromMeshData(next))
+    }
+    this.setPaintHover(null)
+    return true
+  }
+
+  /** ペイント対象のポリゴンを半透明で強調 */
+  private setPaintHover(target: { mesh: Mesh; faceIndex: number } | null): void {
+    let next: { mesh: Mesh; poly: number } | null = null
+    if (target) {
+      const ud = target.mesh.userData as ObjUserData
+      const polys = ud.kind === 'primitive' ? polyIdsOf(target.mesh.geometry) : meshPolygons(ud.mesh)
+      next = { mesh: target.mesh, poly: polys[target.faceIndex] }
+    }
+    if (next?.mesh === this.paintHover?.mesh && next?.poly === this.paintHover?.poly) return
+    if (this.paintHover) removeOverlays(this.paintHover.mesh, 'paint-hover')
+    this.paintHover = next
+    if (!next) return
+    const ud = next.mesh.userData as ObjUserData
+    const polys = ud.kind === 'primitive' ? polyIdsOf(next.mesh.geometry) : meshPolygons(ud.mesh)
+    const g = next.mesh.geometry
+    const idx = g.index!
+    const pos = g.getAttribute('position')
+    const pts: number[] = []
+    polys.forEach((p, t) => {
+      if (p !== next!.poly) return
+      for (let k = 0; k < 3; k++) {
+        const v = idx.getX(t * 3 + k)
+        pts.push(pos.getX(v), pos.getY(v), pos.getZ(v))
+      }
+    })
+    const hg = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array(pts), 3))
+    const color = paletteMaterials()[this.currentColor].color
+    const hover = new Mesh(
+      hg,
+      new MeshBasicMaterial({ color, transparent: true, opacity: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    )
+    hover.name = 'paint-hover'
+    hover.raycast = () => {}
+    hover.renderOrder = 500
+    next.mesh.add(hover)
+  }
+
+  /** 単独選択中のプリミティブのポリゴン単位の塗りを消す */
+  clearPaint(): void {
+    const m = this.selection.length === 1 ? this.meshById(this.selection[0]) : undefined
+    const ud = m?.userData as ObjUserData | undefined
+    if (!m || ud?.kind !== 'primitive' || !ud.faceColors) return
+    ud.faceColors = undefined
+    this.replaceGeometry(m, primitiveGeometry(ud))
+    this.commit()
+  }
+
+  /** 選択物それぞれの面数を最適化（同色・同一平面の面をまとめる）。元の形は「結合解除」で戻せる */
+  optimizeSelected(): { optimized: number; before: number; after: number } {
+    this.releasePivot()
+    const result = { optimized: 0, before: 0, after: 0 }
+    const ids: string[] = []
+    for (const id of this.selection) {
+      const m = this.meshById(id)!
+      m.updateMatrixWorld(true)
+      const before = triangleCount(m.geometry)
+      const { mesh, center } = mergeObjects([{ geometry: m.geometry, matrixWorld: m.matrixWorld }])
+      const after = mesh.indices.length / 3
+      result.before += before
+      if (after >= before) {
+        result.after += before
+        ids.push(id)
+        continue
+      }
+      const src = this.meshToData(m)
+      src.position = [src.position[0] - center.x, src.position[1] - center.y, src.position[2] - center.z].map(clean) as Vec3
+      disposeMesh(m)
+      const nid = newId()
+      this.objectRoot.add(
+        this.buildMesh({ id: nid, kind: 'mesh', mesh, sources: [src], position: center.toArray() as Vec3, quaternion: [0, 0, 0, 1], scale: [1, 1, 1] }),
+      )
+      ids.push(nid)
+      result.optimized++
+      result.after += after
+    }
+    this.setSelection(ids)
+    if (result.optimized) this.commit()
+    return result
   }
 
   /** 選択物を移動（矢印キー用）。delta はスナップ単位 */
@@ -725,6 +873,13 @@ export class Editor {
   cancelDrag = (): void => {
     const p = this.pointer
     this.pointer = null
+    if (p?.painting) {
+      // 途中まで塗った分は確定する（取り消しは Undo で）
+      this.orbit.enabled = true
+      if (this.paintChanged) this.commit()
+      this.paintChanged = false
+      return
+    }
     if (!p?.dragging) return
     this.gizmo.cancelDrag()
     this.orbit.enabled = true
@@ -743,6 +898,15 @@ export class Editor {
     this.setRay(e)
     this.pointer = { id: e.pointerId, x: e.clientX, y: e.clientY, dragging: false, clickId: null }
     this.capture(e) // 空白クリックでもキャンバス外で離したときに pointerup を受け取る
+    if (this.paintMode) {
+      // ペイント: 押したまま動かすと通過したポリゴンも塗る。離したときに 1 回分として履歴へ
+      this.pointer.painting = true
+      this.orbit.enabled = false
+      this.paintChanged = false
+      const hit = this.raycaster.intersectObjects(this.meshes, false)[0]
+      if (hit && this.paintHit(hit)) this.paintChanged = true
+      return
+    }
     // 1) ハンドル
     const handle = this.gizmo.pick(this.raycaster)
     if (handle) {
@@ -780,6 +944,14 @@ export class Editor {
 
   private onPointerMove = (e: PointerEvent): void => {
     this.setRay(e)
+    if (this.paintMode) {
+      const hit = this.raycaster.intersectObjects(this.meshes, false)[0]
+      if (this.pointer?.painting) {
+        if (hit && this.paintHit(hit)) this.paintChanged = true
+      }
+      this.setPaintHover(hit && hit.faceIndex != null ? { mesh: hit.object as Mesh, faceIndex: hit.faceIndex } : null)
+      return
+    }
     if (this.pointer?.dragging && this.gizmo.dragging) {
       const info = this.gizmo.updateDrag(this.raycaster.ray, e.shiftKey)
       if (info !== this.dragInfo) {
@@ -800,6 +972,12 @@ export class Editor {
     // 押したポインタの解放で終える（ドラッグ中に右ボタンを足した場合なども button では判定しない）
     if (!p || e.pointerId !== p.id || (e.buttons & 1) !== 0) return
     this.pointer = null
+    if (p.painting) {
+      this.orbit.enabled = true
+      if (this.paintChanged) this.commit()
+      this.paintChanged = false
+      return
+    }
     const clicked = Math.hypot(e.clientX - p.x, e.clientY - p.y) <= 4
     if (p.dragging) {
       this.orbit.enabled = true
@@ -833,9 +1011,12 @@ export class Editor {
       dragInfo: this.dragInfo,
       flatShading: paletteMaterials()[0].flatShading,
       xray: this.xray,
+      paintMode: this.paintMode,
       selectionPrimitive: (() => {
         const ud = sel.length === 1 ? (sel[0].userData as ObjUserData) : null
-        return ud?.kind === 'primitive' ? { primitive: ud.primitive, params: { ...ud.params } } : null
+        return ud?.kind === 'primitive'
+          ? { primitive: ud.primitive, params: { ...ud.params }, painted: !!ud.faceColors && Object.keys(ud.faceColors).length > 0 }
+          : null
       })(),
       selectionIssues: (() => {
         const merged = sel.map((m) => m.userData as ObjUserData).filter((u) => u.kind === 'mesh')
@@ -936,9 +1117,9 @@ function addOverlays(mesh: Mesh): void {
   mesh.add(issues)
 }
 
-function removeOverlays(mesh: Mesh): void {
+function removeOverlays(mesh: Mesh, name = 'overlay'): void {
   for (const c of [...mesh.children]) {
-    if (c.name !== 'overlay') continue
+    if (c.name !== name) continue
     c.removeFromParent()
     ;(c as LineSegments).geometry.dispose()
   }
@@ -946,6 +1127,15 @@ function removeOverlays(mesh: Mesh): void {
 
 function disposeMesh(m: Mesh): void {
   removeOverlays(m)
+  removeOverlays(m, 'paint-hover')
   m.removeFromParent()
   m.geometry.dispose()
+}
+
+/** プリミティブの形状（ポリゴン単位の塗りを反映した groups 付き） */
+function primitiveGeometry(ud: { primitive: string; params: PrimitiveParams; color: number; faceColors?: Record<number, number> }): BufferGeometry {
+  const g = buildPrimitiveGeometry(ud.primitive, ud.params)
+  if (!ud.faceColors) return setSingleColor(g, ud.color)
+  applyTriangleColors(g, primitiveTriColors(polyIdsOf(g), ud.color, ud.faceColors))
+  return g
 }

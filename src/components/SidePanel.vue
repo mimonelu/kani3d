@@ -6,7 +6,7 @@ import { PRIMITIVES, type PrimitiveDef } from '../core/primitives'
 import { renderPrimitiveThumbnails } from '../core/thumbnails'
 import { editorRef, state } from '../store'
 
-const activeColor = () => state.selectionColor ?? state.currentColor
+const activeColor = () => (state.paintMode ? state.currentColor : (state.selectionColor ?? state.currentColor))
 
 // サムネイルは既定色（白）固定。選択中のカラーとは連動させない
 const thumbs = ref<Record<string, string>>({})

@@ -7,7 +7,7 @@ import { editorRef, state } from '../store'
 const target = computed(() => {
   const sp = state.selectionPrimitive
   const def = sp && getPrimitive(sp.primitive)
-  return def ? { def, params: sp.params } : null
+  return def ? { def, params: sp.params, painted: sp.painted } : null
 })
 
 function set(d: ParamDef, value: ParamValue, commit: boolean) {
@@ -22,6 +22,10 @@ const onRange = (d: ParamDef, e: Event, commit: boolean) => set(d, Number((e.tar
     <h3>形状オプション</h3>
     <p v-if="!target" class="empty">プリミティブを 1 つ選択すると、角数や分割数などを変更できます。</p>
     <p v-else-if="!target.def.params.length" class="empty">{{ target.def.label }}にはオプションがありません。</p>
+    <div v-else-if="target.painted" class="painted">
+      <p class="empty">ポリゴン単位で塗られているため形状を変更できません（分割数などを変えると塗りの位置が変わるため）。</p>
+      <button @click="editorRef?.clearPaint()">塗りをリセット</button>
+    </div>
     <div v-else class="rows" :data-shape="target.def.id">
       <label v-for="d in target.def.params" :key="d.key" class="row">
         <span class="name">{{ d.label }}</span>
@@ -67,6 +71,17 @@ h3 {
   margin: 0;
   font-size: 11px;
   color: var(--text-dim);
+}
+.painted button {
+  margin-top: 6px;
+  background: var(--button);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.painted button:hover {
+  background: var(--button-hover);
 }
 .rows {
   display: flex;

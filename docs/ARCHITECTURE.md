@@ -17,6 +17,8 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 |---|---|
 | プリミティブ追加・形状オプション | `core/primitives.ts`（`PRIMITIVES` に定義を追加。`params` に ParamDef を書けば UI〈`components/ShapeOptions.vue`〉は自動生成。bbox 正規化・巻き方向・法線は自動。`primitives.test.ts` が全パラメータの端値で閉じた形状かを検証） |
 | 既存オブジェクトの形状変更 | `Editor.setPrimitiveParams`（底面の高さを保って作り直す。スライダー操作中は commit=false でプレビュー） |
+| ポリゴン単位のペイント | `core/paint.ts`（三角形ごとの色 → index を色順に並べ替えて groups 化）、`Editor.setPaintMode / paintHit`。ポリゴン番号はプリミティブ生成時に `geometry.userData.polyIds`（`PrimitiveDef.polygons`: 同一平面でつながった三角形 or 立方体のマス目）、結合物は `meshPolygons`（同一平面でつながった三角形） |
+| 単体の面数最適化 | `Editor.optimizeSelected`（1 オブジェクトで `mergeObjects` を通す。元は `sources` に残り結合解除で戻る） |
 | 旧形式のプリミティブ ID の変換 | `primitives.ts` の `LEGACY_PRIMITIVES`（`io.parseDoc` が適用） |
 | 色の追加・変更 | `core/palette.ts`（インデックス＝保存される色ID。並べ替え禁止、追加は末尾） |
 | 表示グリッド(10cm)・スナップ単位(5cm)・回転刻み・初期サイズ(10cm) | `core/constants.ts`（`GRID` は表示のみ、スナップは `SNAP`） |
@@ -40,6 +42,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 - `Editor.toData()` ⇄ `restore()` がシーンとデータを相互変換し、保存・読み込み・Undo すべてがこれを通る。
 - transform は保存・履歴とも浮動小数のノイズだけを落として保持（`Editor.toTransform`）。1e-6 などに丸めると回転が正規化されずわずかに縮み、同一平面の面がずれて再結合時に CSG が穴を残す。
 - `MeshData` は不変として扱う（色変更時も新オブジェクトを作る）→ 履歴間で参照共有できる。
+- プリミティブの塗りは `faceColors`（ポリゴン番号 → 色）。形状オプションを変えると番号がずれるので、塗りがある間は形状オプションをロック（UI でリセットを促す）。全体の色変更は塗りを上書きする。結合物を塗ると MeshData を作り直す（`sources` は塗らないので結合解除で塗りは消える）。
 - 結合物は `sources` に結合前のオブジェクトを **結合物のローカル座標** で保持する（入れ子可）。結合解除はその時点の結合物の行列を掛けて戻すので、結合後の移動・回転・拡縮が引き継がれる（回転した結合元を非等倍拡縮した場合は歪みを近似）。色変更は `sources` にも再帰的に反映。
 
 ## 操作とスナップ（Editor + Gizmo）

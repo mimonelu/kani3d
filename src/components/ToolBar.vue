@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { FILE_EXT } from '../core/io'
-import { editorRef, exportGlbFile, mergeMode, newScene, openSceneFile, saveScene, state, toggleFlatShading, toggleMerge, ui } from '../store'
+import { editorRef, exportGlbFile, mergeMode, newScene, openSceneFile, optimizeSelection, saveScene, state, toggleFlatShading, toggleMerge, ui } from '../store'
 
 const fileInput = ref<HTMLInputElement>()
 
@@ -39,12 +39,25 @@ function confirmNew() {
     <div class="group">
       <button :disabled="!state.selection.length" @click="editorRef?.duplicateSelected()" title="Ctrl+D">複製</button>
       <button :disabled="!state.selection.length" @click="editorRef?.deleteSelected()" title="Delete">削除</button>
+      <button :disabled="!state.selection.length" title="同じ色・同じ平面の面をまとめて三角形を減らす（結合解除で元に戻せる）" @click="optimizeSelection">
+        最適化
+      </button>
       <button
         :disabled="mergeMode === null"
         :title="mergeMode === 'unmerge' ? '結合解除 (Ctrl+G)' : '複数選択して結合 (Ctrl+G)'"
         @click="toggleMerge"
       >
         {{ mergeMode === 'unmerge' ? '結合解除' : '結合' }}
+      </button>
+    </div>
+    <div class="group">
+      <button
+        :class="{ active: state.paintMode }"
+        :aria-pressed="state.paintMode"
+        title="ポリゴン単位で現在のカラーを塗る (P)"
+        @click="editorRef?.setPaintMode(!state.paintMode)"
+      >
+        ペイント
       </button>
     </div>
     <div class="group">

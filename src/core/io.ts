@@ -71,7 +71,8 @@ function parseObjects(list: SceneObjectData[], ids: Set<string> | null, depth: n
       const rawParams = { ...(o.params && typeof o.params === 'object' ? o.params : {}), ...legacy?.params }
       const params = compactParams(primitive, resolveParams(primitive, rawParams))
       if (legacy?.scaleY) base.scale = [base.scale[0], base.scale[1] * legacy.scaleY, base.scale[2]]
-      return { ...base, kind: 'primitive', primitive, color: clampColor(o.color), ...(params && { params }) }
+      const faceColors = parseFaceColors(o.faceColors)
+      return { ...base, kind: 'primitive', primitive, color: clampColor(o.color), ...(params && { params }), ...(faceColors && { faceColors }) }
     }
     if (o.kind === 'mesh') {
       const sources = Array.isArray(o.sources) ? parseObjects(o.sources, null, depth + 1) : undefined
@@ -79,6 +80,17 @@ function parseObjects(list: SceneObjectData[], ids: Set<string> | null, depth: n
     }
     throw new Error(`object ${i}: unknown kind`)
   })
+}
+
+/** { ポリゴン番号: 色ID }。不正な要素は捨てる（範囲外のポリゴン番号は描画時に無視される） */
+function parseFaceColors(v: unknown): Record<number, number> | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+  const out: Record<number, number> = {}
+  for (const [k, c] of Object.entries(v)) {
+    const i = Number(k)
+    if (Number.isInteger(i) && i >= 0 && typeof c === 'number') out[i] = clampColor(c)
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 export const stringifyDoc = (doc: SceneDoc): string => JSON.stringify(doc)
