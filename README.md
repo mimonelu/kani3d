@@ -17,3 +17,10 @@ npm install
 npm run dev
 ```
 操作方法はツールバー右端の「?」ボタン（または ? キー）のヘルプを参照。開発者向け情報は [CLAUDE.md](CLAUDE.md) と [docs/](docs/)。
+
+## ライセンス
+
+[MIT License](LICENSE) © 2026 mimonelu — ソースコードは改変・再配布・商用利用が自由（著作権表示は残してください）。このエディタで作ったモデル・画像は作った人のもので、商用利用も自由です。
+
+- Bluesky: https://bsky.app/profile/mimonelu.net
+- GitHub: https://github.com/mimonelu/kani3d
