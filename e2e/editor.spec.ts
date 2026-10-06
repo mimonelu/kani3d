@@ -17,7 +17,8 @@ test('プリミティブ追加・積み上げ・色変更・Undo', async ({ page
   await cube.click()
   await cube.click() // 選択中の上に積まれる
   let data = await sceneData(page)
-  expect(data.map((d) => d.position[1])).toEqual([0.05, 0.15])
+  // 位置は float32 頂点基準の外枠スナップなので 1e-9 程度の誤差を許容
+  expect(data.map((d) => d.position[1])).toEqual([expect.closeTo(0.05, 6), expect.closeTo(0.15, 6)])
 
   await page.locator('[data-color="0"]').click()
   data = await sceneData(page)
