@@ -36,6 +36,24 @@ function confirmNew() {
       <button :disabled="!state.selection.length" @click="editorRef?.deleteSelected()" title="Delete">削除</button>
       <button :disabled="state.selection.length < 2" @click="mergeSelection" title="Ctrl+G">結合</button>
     </div>
+    <div class="group" title="選択物のシェーディング（GLB の法線にも反映）">
+      <button
+        :disabled="!state.selection.length"
+        :class="{ active: state.selection.length && state.selectionShading === 'smooth' }"
+        title="グローシェーディング（60° 未満の折れを滑らかに）"
+        @click="editorRef?.setShading('smooth')"
+      >
+        スムーズ
+      </button>
+      <button
+        :disabled="!state.selection.length"
+        :class="{ active: state.selection.length && state.selectionShading === 'flat' }"
+        title="フラットシェーディング（面ごとの法線）"
+        @click="editorRef?.setShading('flat')"
+      >
+        フラット
+      </button>
+    </div>
     <span class="message">{{ ui.message }}</span>
     <button class="help" title="ヘルプ (?)" @click="ui.helpOpen = true">?</button>
   </header>
@@ -82,6 +100,10 @@ button:hover:not(:disabled) {
 button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+button.active {
+  background: var(--accent);
+  color: #1b1f24;
 }
 button.primary {
   background: var(--primary);

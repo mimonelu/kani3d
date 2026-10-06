@@ -40,6 +40,7 @@ export function parseDoc(text: string): SceneDoc {
       position: o.position,
       quaternion: o.quaternion,
       scale: o.scale,
+      ...(o.shading === 'smooth' || o.shading === 'flat' ? { shading: o.shading } : {}),
     }
     if (o.kind === 'primitive') {
       if (!getPrimitive(o.primitive)) throw new Error(`object ${i}: unknown primitive ${o.primitive}`)

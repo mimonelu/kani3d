@@ -17,7 +17,7 @@ test('プリミティブ追加・積み上げ・色変更・Undo', async ({ page
   await cube.click()
   await cube.click() // 選択中の上に積まれる
   let data = await sceneData(page)
-  expect(data.map((d) => d.position[1])).toEqual([0.1, 0.3])
+  expect(data.map((d) => d.position[1])).toEqual([0.05, 0.15])
 
   await page.locator('[data-color="0"]').click()
   data = await sceneData(page)
@@ -37,21 +37,42 @@ test('ドラッグ&ドロップで配置（オブジェクト上なら天面に�
   await page.locator('[data-primitive="wedge"]').dragTo(canvas, { targetPosition: center })
   const data = await sceneData(page)
   expect(data).toHaveLength(3)
-  expect(data[0].position[1]).toBeCloseTo(0.1)
-  expect(data[2].position[1]).toBeCloseTo(0.3) // 立方体の上
+  expect(data[0].position[1]).toBeCloseTo(0.05)
+  expect(data[2].position[1]).toBeCloseTo(0.15) // 立方体の上
 })
 
-test('キーボード操作はグリッドにスナップする', async ({ page }) => {
+test('キーボード操作は 5cm 単位、回転は中心が動かない', async ({ page }) => {
   await page.locator('[data-primitive="cube"]').click()
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('PageUp')
   let b = await page.evaluate(() => (window as any).__kani.selectionBounds())
-  expect(b.min).toEqual([0.1, 0.1, -0.1])
-  await page.keyboard.press('y') // 45° 回転してもバウンディングボックス最小点は格子上
+  expect(b.min).toEqual([0.05, 0.05, -0.05])
+  await page.keyboard.press('y') // 45° 回転
   b = await page.evaluate(() => (window as any).__kani.selectionBounds())
-  for (const v of b.min) expect(Math.abs(v * 10 - Math.round(v * 10))).toBeLessThan(1e-3)
-  expect(b.max[0] - b.min[0]).toBeCloseTo(0.2 * Math.SQRT2, 3)
+  expect((b.min[0] + b.max[0]) / 2).toBeCloseTo(0.1, 6)
+  expect(b.max[0] - b.min[0]).toBeCloseTo(0.1 * Math.SQRT2, 3)
+})
+
+test('非対称な形状を何度回転しても回転中心がずれない', async ({ page }) => {
+  await page.evaluate(() => (window as any).__kani.addPrimitive('stairs'))
+  const center = () => page.evaluate(() => (window as any).__kani.gizmo.rotationCenter().toArray() as number[])
+  const c0 = await center()
+  for (const k of ['y', 'y', 'x', 'z', 'Shift+Y', 'y', 'y', 'y', 'y', 'y', 'y']) await page.keyboard.press(k)
+  const c1 = await center()
+  for (let i = 0; i < 3; i++) expect(c1[i]).toBeCloseTo(c0[i], 6)
+})
+
+test('シェーディング切替は保存され、Undo できる', async ({ page }) => {
+  await page.locator('[data-primitive="cylinder"]').click()
+  const smooth = page.getByRole('button', { name: 'スムーズ' })
+  const flat = page.getByRole('button', { name: 'フラット' })
+  await expect(smooth).toHaveClass(/active/) // 円柱の既定
+  await flat.click()
+  await expect(flat).toHaveClass(/active/)
+  expect((await sceneData(page))[0]).toMatchObject({ shading: 'flat' })
+  await page.keyboard.press('Control+z')
+  await expect(smooth).toHaveClass(/active/)
 })
 
 test('クリックで選択解除・全選択・結合', async ({ page }) => {

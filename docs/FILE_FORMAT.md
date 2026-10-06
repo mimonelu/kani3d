@@ -11,7 +11,8 @@
       "color": 6,                     // core/palette.ts のインデックス
       "position": [0, 0.1, 0],        // m（Y-up、床は y=0）
       "quaternion": [0, 0, 0, 1],
-      "scale": [1, 1, 1]
+      "scale": [1, 1, 1],
+      "shading": "flat"               // 省略可: "smooth" | "flat"。省略時はプリミティブ既定
     },
     {
       "id": "o...", "kind": "mesh",   // 結合結果

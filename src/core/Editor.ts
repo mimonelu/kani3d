@@ -29,7 +29,7 @@ import {
   type BufferGeometry,
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { GRID, GRID_EXTENT, ROT_STEP, snapValue } from './constants'
+import { GRID, GRID_EXTENT, ROT_STEP, SNAP, snapValue } from './constants'
 import { AXIS_COLOR, Gizmo } from './Gizmo'
 import { History } from './history'
 import { createDoc, exportGlb } from './io'
@@ -37,7 +37,8 @@ import { mergeObjects } from './merge'
 import { geometryFromMeshData, setSingleColor, triangleCount } from './meshData'
 import { DEFAULT_COLOR, paletteMaterials } from './palette'
 import { buildPrimitiveGeometry, getPrimitive } from './primitives'
-import type { MeshData, SceneDoc, SceneObjectData, Vec3, Quat } from './types'
+import { reshadeMeshData } from './shading'
+import type { MeshData, Quat, SceneDoc, SceneObjectData, Shading, Vec3 } from './types'
 
 export interface EditorState {
   objectCount: number
@@ -49,13 +50,17 @@ export interface EditorState {
   /** 選択物全体のサイズ (m) */
   selectionSize: Vec3 | null
   currentColor: number
+  /** 選択物がすべて同じシェーディングならその値 */
+  selectionShading: Shading | null
   /** ドラッグ中の寸法・角度など（HUD 表示用） */
   dragInfo: string
   canUndo: boolean
   canRedo: boolean
 }
 
-type ObjUserData = { id: string; kind: 'primitive'; primitive: string } | { id: string; kind: 'mesh'; mesh: MeshData }
+type ObjUserData =
+  | { id: string; kind: 'primitive'; primitive: string; shading?: Shading }
+  | { id: string; kind: 'mesh'; mesh: MeshData; shading?: Shading }
 
 let idSeq = 0
 const newId = () => `o${Date.now().toString(36)}${(idSeq++).toString(36)}`
@@ -90,14 +95,14 @@ export class Editor {
     container.appendChild(this.renderer.domElement)
     this.scene.background = new Color('#1b1f24')
 
-    this.camera.position.set(0.75, 0.7, 1.0)
+    this.camera.position.set(0.45, 0.42, 0.6)
     this.setupLightsAndGround()
     this.scene.add(this.objectRoot, this.pivot)
 
     // 中ボタン=パン、右ボタン=回転、ホイール=ズーム。左は選択・ギズモ用に空ける
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement)
     this.orbit.mouseButtons = { LEFT: null, MIDDLE: MOUSE.PAN, RIGHT: MOUSE.ROTATE }
-    this.orbit.target.set(0, 0.1, 0)
+    this.orbit.target.set(0, 0.05, 0)
     this.orbit.enableDamping = false
     this.orbit.update()
 
@@ -191,11 +196,11 @@ export class Editor {
     let geometry: BufferGeometry
     let ud: ObjUserData
     if (d.kind === 'primitive') {
-      geometry = setSingleColor(buildPrimitiveGeometry(d.primitive), d.color)
-      ud = { id: d.id, kind: 'primitive', primitive: d.primitive }
+      geometry = setSingleColor(buildPrimitiveGeometry(d.primitive, d.shading), d.color)
+      ud = { id: d.id, kind: 'primitive', primitive: d.primitive, shading: d.shading }
     } else {
       geometry = geometryFromMeshData(d.mesh)
-      ud = { id: d.id, kind: 'mesh', mesh: d.mesh }
+      ud = { id: d.id, kind: 'mesh', mesh: d.mesh, shading: d.shading }
     }
     geometry.computeBoundingBox()
     const mesh = new Mesh(geometry, paletteMaterials())
@@ -219,9 +224,10 @@ export class Editor {
     }
     const ud = m.userData as ObjUserData
     if (ud.kind === 'primitive') {
-      return { id: ud.id, kind: 'primitive', primitive: ud.primitive, color: m.geometry.groups[0]?.materialIndex ?? 0, ...t }
+      const color = m.geometry.groups[0]?.materialIndex ?? 0
+      return { id: ud.id, kind: 'primitive', primitive: ud.primitive, color, ...t, ...(ud.shading && { shading: ud.shading }) }
     }
-    return { id: ud.id, kind: 'mesh', mesh: ud.mesh, ...t }
+    return { id: ud.id, kind: 'mesh', mesh: ud.mesh, ...t, ...(ud.shading && { shading: ud.shading }) }
   }
 
   toData(): SceneObjectData[] {
@@ -415,11 +421,36 @@ export class Editor {
     this.commit()
   }
 
-  /** 選択物を移動（矢印キー用）。delta はグリッド単位 */
+  /** 選択物のシェーディング（法線）を切り替える。GLB にもそのまま出力される */
+  setShading(shading: Shading): void {
+    if (!this.selection.length) return
+    this.releasePivot()
+    for (const id of this.selection) {
+      const old = this.meshById(id)!
+      const d = this.meshToData(old)
+      d.shading = shading
+      if (d.kind === 'mesh') d.mesh = reshadeMeshData(d.mesh, shading)
+      const m = this.buildMesh(d)
+      old.parent!.add(m)
+      old.removeFromParent()
+      old.geometry.dispose()
+    }
+    this.setSelection(this.selection)
+    this.commit()
+  }
+
+  /** 実効シェーディング。結合物で未指定なら null（混在） */
+  private shadingOf(m: Mesh): Shading | null {
+    const ud = m.userData as ObjUserData
+    if (ud.shading) return ud.shading
+    return ud.kind === 'primitive' ? (getPrimitive(ud.primitive)?.smooth ? 'smooth' : 'flat') : null
+  }
+
+  /** 選択物を移動（矢印キー用）。delta はスナップ単位 */
   nudge(dx: number, dy: number, dz: number): void {
     const obj = this.transformTarget
     if (!obj) return
-    obj.position.add(new Vector3(dx, dy, dz).multiplyScalar(GRID))
+    obj.position.add(new Vector3(dx, dy, dz).multiplyScalar(SNAP))
     this.snapBoxMin(obj)
     this.commit()
   }
@@ -430,11 +461,10 @@ export class Editor {
     if (!obj) return
     const v = new Vector3()
     v[axis] = 1
-    // ボックス中心まわりに回転
-    const c = new Box3().setFromObject(obj, true).getCenter(new Vector3())
+    // ローカル箱の中心まわりに回転（位置スナップはしない＝中心が動かない）
+    const c = this.gizmo.rotationCenter() ?? new Vector3()
     obj.position.sub(c).applyAxisAngle(v, ROT_STEP * dir).add(c)
     obj.rotateOnWorldAxis(v, ROT_STEP * dir)
-    this.snapBoxMin(obj)
     this.commit()
   }
 
@@ -611,6 +641,10 @@ export class Editor {
         return b ? (b.max.map((v, i) => Math.round((v - b.min[i]) * 1e4) / 1e4) as Vec3) : null
       })(),
       dragInfo: this.dragInfo,
+      selectionShading: (() => {
+        const set = new Set(sel.map((m) => this.shadingOf(m)))
+        return set.size === 1 ? [...set][0] : null
+      })(),
       canUndo: this.history.canUndo,
       canRedo: this.history.canRedo,
     }

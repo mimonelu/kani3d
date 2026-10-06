@@ -28,7 +28,7 @@ import {
   TorusGeometry,
   Vector3,
 } from 'three'
-import { GRID, ROT_STEP, snapValue } from './constants'
+import { ROT_STEP, SNAP, snapValue } from './constants'
 
 type Axis = 'x' | 'y' | 'z'
 const AXES: Axis[] = ['x', 'y', 'z']
@@ -257,9 +257,29 @@ export class Gizmo {
       this.handles.filter((h) => h.group.visible).map((h) => h.hit),
       false,
     )
-    // 拡縮・持ち上げハンドルは小さいので回転円弧より優先
-    const h = (hits.find((x) => x.object.userData.handle.info.kind !== 'rotate') ?? hits[0])?.object.userData.handle
-    return (h as Handle | undefined) ?? null
+    // ハンドルは常に手前に描画されるので奥行きではなく「画面上の近さ」で選ぶ。
+    // 点状のハンドルは中心からのピクセル距離、円弧は当たった時点で一定値
+    let best: Handle | null = null
+    let bestScore = Infinity
+    for (const hit of hits) {
+      const h = hit.object.userData.handle as Handle
+      let score = HANDLE_PX * 0.5
+      if (h.info.kind !== 'rotate') {
+        const c = h.group.getWorldPosition(new Vector3())
+        score = raycaster.ray.distanceToPoint(c) / this.worldPerPixel(c)
+        // 小さな物体ではハンドル同士・本体と重なるので、中心付近だけを反応範囲にする
+        if (score > HANDLE_PX * 0.8) continue
+      }
+      if (score < bestScore) [best, bestScore] = [h, score]
+    }
+    return best
+  }
+
+  /** 回転中心: ローカル箱の中心のワールド座標（物体に固定された点なので回転しても動かない） */
+  rotationCenter(): Vector3 | null {
+    if (!this.target) return null
+    this.target.updateMatrixWorld(true)
+    return this.target.localToWorld(this.box.getCenter(new Vector3()))
   }
 
   /** テスト・デバッグ用: 表示中ハンドルの識別名とワールド座標（回転円弧は中央点） */
@@ -325,8 +345,8 @@ export class Gizmo {
       const [, , n] = Gizmo.basis(info.axis)
       const plane = new Plane().setFromNormalAndCoplanarPoint(n, center)
       const a = this.angleOn(info.axis, center, ray, plane) ?? 0
-      // 回転中心はボックス中心（Y 回転円弧は床面に描くが回転軸は中心を通る）
-      this.drag = { kind: 'rotate', axis: info.axis, plane, center: wbox.getCenter(new Vector3()), a0: a, last: a, total: 0 }
+      // 回転中心はローカル箱の中心（Y 回転円弧は床面に描くが回転軸は中心を通る）
+      this.drag = { kind: 'rotate', axis: info.axis, plane, center: this.rotationCenter()!, a0: a, last: a, total: 0 }
       const r = (h.visual.geometry as TorusGeometry).parameters?.radius ?? 0.2
       const [u, v] = Gizmo.basis(info.axis)
       this.protractor.position.copy(center)
@@ -394,8 +414,9 @@ export class Gizmo {
       const [, , n] = Gizmo.basis(d.axis)
       const qa = new Quaternion().setFromAxisAngle(n, snapped)
       t.quaternion.copy(qa).multiply(s.quat)
+      // 回転中心（ローカル箱の中心＝物体に固定された点）は動かさない。
+      // ここで bbox スナップすると非対称形状で中心がずれていくのでしない
       t.position.copy(s.pos).sub(d.center).applyQuaternion(qa).add(d.center)
-      this.snapToGrid(t)
       this.updateNeedle(d.a0 + snapped)
       return `${d.axis.toUpperCase()} 軸 ${Math.round((snapped * 180) / Math.PI)}°`
     }
@@ -410,7 +431,7 @@ export class Gizmo {
       for (const axis of AXES) {
         if (info.dir[axis] === 0 || s0[axis] < 1e-9) continue
         const startSize = s0[axis] * Math.abs(s.scale[axis])
-        const size = Math.max(GRID, snapValue(startSize + (q[axis] - d.q0[axis]) * info.dir[axis]))
+        const size = Math.max(SNAP, snapValue(startSize + (q[axis] - d.q0[axis]) * info.dir[axis]))
         newScale[axis] = size / s0[axis]
         ratios.push({ axis, ratio: size / startSize })
       }

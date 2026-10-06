@@ -16,6 +16,8 @@ import {
 } from 'three'
 import { mergeVertices, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { BASE_SIZE } from './constants'
+import { CREASE_ANGLE } from './shading'
+import type { Shading } from './types'
 
 export type PrimitiveCategory = '基本' | '角柱・円柱' | '錐' | '特殊'
 
@@ -25,7 +27,7 @@ export interface PrimitiveDef {
   category: PrimitiveCategory
   /** バウンディングボックスがこのサイズ (m) になるよう正規化される */
   size: [number, number, number]
-  /** true なら曲面を滑らかに（クリース角 60°）、false なら全面フラット */
+  /** 既定のシェーディング。true なら曲面を滑らかに（クリース角 60°）、false なら全面フラット */
   smooth: boolean
   create: () => BufferGeometry
 }
@@ -178,8 +180,11 @@ const cache = new Map<string, BufferGeometry>()
  * 正規化済みのプリミティブ形状（position/normal のみ、インデックス付き、group なし）。
  * 戻り値は毎回 clone なので呼び出し側で groups を書き換えてよい。
  */
-export function buildPrimitiveGeometry(id: string): BufferGeometry {
-  let base = cache.get(id)
+export function buildPrimitiveGeometry(id: string, shading?: Shading): BufferGeometry {
+  const def0 = getPrimitive(id)
+  const smooth = shading ? shading === 'smooth' : !!def0?.smooth
+  const cacheKey = `${id}|${smooth}`
+  let base = cache.get(cacheKey)
   if (!base) {
     const def = getPrimitive(id)
     if (!def) throw new Error(`unknown primitive: ${id}`)
@@ -193,11 +198,11 @@ export function buildPrimitiveGeometry(id: string): BufferGeometry {
     g.translate(-bb.min.x - sz.x / 2, -bb.min.y - sz.y / 2, -bb.min.z - sz.z / 2)
     g.scale(def.size[0] / sz.x, def.size[1] / sz.y, def.size[2] / sz.z)
     // 法線: 曲面は 60° 未満の折れを滑らかに、それ以外はフラット
-    g = toCreasedNormals(g, def.smooth ? Math.PI / 3 : 0.01)
+    g = toCreasedNormals(g, smooth ? CREASE_ANGLE : 0.01)
     g = mergeVertices(g, 1e-6)
     g.computeBoundingBox()
     base = g
-    cache.set(id, base)
+    cache.set(cacheKey, base)
   }
   const out = base.clone()
   out.clearGroups()

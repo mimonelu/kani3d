@@ -15,6 +15,7 @@ export const state = reactive<EditorState>({
   selectionSize: null,
   currentColor: DEFAULT_COLOR,
   dragInfo: '',
+  selectionShading: null,
   canUndo: false,
   canRedo: false,
 })

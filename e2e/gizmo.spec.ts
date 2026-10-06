@@ -15,7 +15,8 @@ async function drag(page: Page, from: Pt, to: Pt, shift = false) {
   if (shift) await page.keyboard.up('Shift')
 }
 
-const onGrid = (v: number) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-3
+/** 5cm スナップ単位に乗っているか */
+const onGrid = (v: number) => Math.abs(v * 20 - Math.round(v * 20)) < 1e-3
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
@@ -29,10 +30,10 @@ test('天面ハンドルで高さだけ伸び、底面は固定', async ({ page 
   const h = (await handles(page))['scale:0,1,0']
   await drag(page, h, { x: h.x, y: h.y - 120 })
   const b = await bounds(page)
-  expect(b.min).toEqual([-0.1, 0, -0.1])
-  expect(b.max[1]).toBeGreaterThan(0.25)
+  expect(b.min).toEqual([-0.05, 0, -0.05])
+  expect(b.max[1]).toBeGreaterThan(0.12)
   expect(onGrid(b.max[1])).toBe(true)
-  expect(b.max[0]).toBeCloseTo(0.1)
+  expect(b.max[0]).toBeCloseTo(0.05)
 })
 
 test('角ハンドルは反対の角を固定して X/Z を伸縮', async ({ page }) => {
@@ -41,10 +42,10 @@ test('角ハンドルは反対の角を固定して X/Z を伸縮', async ({ pag
   const away = { x: h.x + (h.x - hs['scale:-1,-1,-1'].x) * 0.6, y: h.y + (h.y - hs['scale:-1,-1,-1'].y) * 0.6 }
   await drag(page, h, away)
   const b = await bounds(page)
-  expect(b.min).toEqual([-0.1, 0, -0.1]) // 反対角は動かない
-  expect(b.max[0]).toBeGreaterThan(0.15)
-  expect(b.max[2]).toBeGreaterThan(0.15)
-  expect(b.max[1]).toBeCloseTo(0.2) // 高さは不変
+  expect(b.min).toEqual([-0.05, 0, -0.05]) // 反対角は動かない
+  expect(b.max[0]).toBeGreaterThan(0.08)
+  expect(b.max[2]).toBeGreaterThan(0.08)
+  expect(b.max[1]).toBeCloseTo(0.1) // 高さは不変
   for (const v of [...b.min, ...b.max]) expect(onGrid(v)).toBe(true)
 })
 
@@ -77,7 +78,7 @@ test('持ち上げハンドルで上下移動', async ({ page }) => {
   const h = (await handles(page))['lift']
   await drag(page, h, { x: h.x, y: h.y - 100 })
   const b = await bounds(page)
-  expect(b.min[1]).toBeGreaterThan(0.05)
+  expect(b.min[1]).toBeGreaterThan(0.02)
   expect(onGrid(b.min[1])).toBe(true)
 })
 
@@ -89,4 +90,20 @@ test('回転円弧で 45° 刻みに回転', async ({ page }) => {
   expect(angle).toBeGreaterThan(0.1)
   expect(Math.abs(angle / (Math.PI / 4) - Math.round(angle / (Math.PI / 4)))).toBeLessThan(1e-3)
   expect(Math.abs(q[0]) + Math.abs(q[2])).toBeLessThan(1e-6) // Y 軸まわりのみ
+})
+
+test('回転円弧のドラッグでも回転中心は動かない', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.newScene()
+    k.addPrimitive('wedge')
+  })
+  const center = () => page.evaluate(() => (window as any).__kani.gizmo.rotationCenter().toArray() as number[])
+  const c0 = await center()
+  for (const axis of ['y', 'x', 'z', 'y']) {
+    const h = (await handles(page))[`rotate:${axis}`]
+    await drag(page, h, { x: h.x + 120, y: h.y - 70 })
+  }
+  const c1 = await center()
+  for (let i = 0; i < 3; i++) expect(c1[i]).toBeCloseTo(c0[i], 6)
 })
