@@ -35,18 +35,16 @@ function onDrop(e: DragEvent) {
 
 <template>
   <div class="viewport" ref="host" @dragover.prevent @drop.prevent="onDrop">
-    <div class="top">
-      <div v-if="ui.banner" class="banner" :class="ui.banner.kind" :role="ui.banner.kind === 'warn' ? 'alert' : 'status'">
-        <span>{{ ui.banner.text }}</span>
-        <button class="close" aria-label="閉じる" @click="ui.banner = null">×</button>
-      </div>
-      <div class="hud">
+    <div v-if="ui.banner" class="banner" :class="ui.banner.kind" :role="ui.banner.kind === 'warn' ? 'alert' : 'status'">
+      <span>{{ ui.banner.text }}</span>
+      <button class="close" aria-label="閉じる" @click="ui.banner = null">×</button>
+    </div>
+    <div class="hud">
       <span>オブジェクト {{ state.objectCount }}</span>
       <span>三角形 {{ state.triangles }}</span>
       <span v-if="state.selection.length">選択 {{ state.selection.length }}（{{ state.selectionTriangles }} 三角形）</span>
       <span v-if="state.selectionSize" class="size">{{ state.selectionSize.map(cm).join(' × ') }} cm</span>
       <span v-if="issues" :class="issues.total ? 'issue-bad' : 'issue-ok'">{{ issues.text }}</span>
-      </div>
     </div>
     <div v-if="state.dragInfo" class="drag-info">{{ state.dragInfo }}</div>
   </div>
@@ -71,28 +69,21 @@ function onDrop(e: DragEvent) {
   padding: 3px 8px;
   border-radius: 4px;
 }
-.top {
-  position: absolute;
+.hud {
   top: 8px;
   left: 8px;
-  right: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  pointer-events: none;
-}
-.hud {
-  position: static;
   display: flex;
   gap: 12px;
   color: var(--text-dim);
 }
 .banner {
+  position: absolute;
+  left: 8px;
+  bottom: 12px;
+  max-width: calc(50% - 16px);
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: 100%;
   padding: 6px 8px 6px 12px;
   border-radius: 6px;
   background: rgba(30, 60, 110, 0.92);

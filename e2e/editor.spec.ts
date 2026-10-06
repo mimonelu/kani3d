@@ -327,3 +327,19 @@ test('最適化: 位置・回転・拡縮を保つ（結合物は結合元を保
   }
   expect(r.canUnmerge).toBe(true)
 })
+
+test('最適化のメッセージは左下に出て時間経過で消える（警告は残る）', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.addPrimitive('cube')
+    k.setPrimitiveParams({ segX: 4 })
+  })
+  await page.getByRole('button', { name: '最適化', exact: true }).click()
+  const banner = page.locator('.banner.info')
+  await expect(banner).toBeVisible()
+  const vp = (await page.locator('.viewport').boundingBox())!
+  const b = (await banner.boundingBox())!
+  expect(b.x - vp.x).toBeLessThan(20) // 左下
+  expect(vp.y + vp.height - (b.y + b.height)).toBeLessThan(30)
+  await expect(banner).toBeHidden({ timeout: 8000 })
+})

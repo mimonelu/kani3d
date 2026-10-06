@@ -29,8 +29,8 @@ export const state = reactive<EditorState>({
 export const ui = reactive({
   fileName: 'untitled',
   message: '',
-  /** シーンビュー上部のフロート表示（自動では消えない。× か次の結合・最適化で更新） */
-  banner: null as { kind: 'info' | 'warn'; text: string } | null,
+  /** シーンビュー左下のフロート表示（showBanner で出す） */
+  banner: null as { kind: 'info' | 'warn'; text: string; id: number } | null,
   helpOpen: false,
   openRequest: 0,
 })
@@ -104,6 +104,20 @@ export function toggleFlatShading(): void {
   }
 }
 
+let bannerTimer = 0
+let bannerSeq = 0
+/** シーンビュー左下のフロート表示。info は時間経過で消え、warn は × で閉じるまで残る */
+export function showBanner(kind: 'info' | 'warn', text: string): void {
+  clearTimeout(bannerTimer)
+  // reactive のプロキシと元オブジェクトは === で一致しないので通し番号で判定する
+  const id = ++bannerSeq
+  ui.banner = { kind, text, id }
+  if (kind === 'info')
+    bannerTimer = window.setTimeout(() => {
+      if (ui.banner?.id === id) ui.banner = null
+    }, 5000)
+}
+
 export function notify(message: string, ms = 2500): void {
   ui.message = message
   setTimeout(() => {
@@ -175,12 +189,12 @@ export function optimizeSelection(): void {
   try {
     const r = editorRef.value?.optimizeSelected()
     if (!r) return
-    ui.banner = {
-      kind: 'info',
-      text: r.optimized
+    showBanner(
+      'info',
+      r.optimized
         ? `面数を最適化しました（${r.before} → ${r.after} 三角形）。「最適化解除」で元の形に戻せます`
         : 'これ以上は削減できません',
-    }
+    )
   } catch (e) {
     notify(`最適化失敗: ${(e as Error).message}`)
   }
@@ -191,13 +205,12 @@ export function mergeSelection(): void {
     const r = editorRef.value?.mergeSelected()
     if (!r) return notify('2つ以上選択してください')
     const { open, nonManifold, flipped } = r.issues
-    ui.banner =
-      open + nonManifold + flipped
-        ? {
-            kind: 'warn',
-            text: `結合結果に問題があります（穴 ${open} / 内部面 ${nonManifold} / 裏返り ${flipped}）。X線表示で確認できます。辺だけで接する配置では内部面が出ることがあります`,
-          }
-        : null
+    if (open + nonManifold + flipped)
+      showBanner(
+        'warn',
+        `結合結果に問題があります（穴 ${open} / 内部面 ${nonManifold} / 裏返り ${flipped}）。X線表示で確認できます。辺だけで接する配置では内部面が出ることがあります`,
+      )
+    else ui.banner = null
   } catch (e) {
     notify(`結合失敗: ${(e as Error).message}`)
   }
