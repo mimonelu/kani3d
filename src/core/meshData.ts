@@ -1,8 +1,6 @@
 import { BufferGeometry, Float32BufferAttribute } from 'three'
 import type { MeshData } from './types'
 
-const round = (v: number) => Math.round(v * 1e5) / 1e5
-
 /** MeshData → BufferGeometry（groups.materialIndex = 色ID） */
 export function geometryFromMeshData(m: MeshData): BufferGeometry {
   const g = new BufferGeometry()
@@ -12,19 +10,6 @@ export function geometryFromMeshData(m: MeshData): BufferGeometry {
   for (const gr of m.groups) g.addGroup(gr.start, gr.count, gr.color)
   g.computeBoundingBox()
   return g
-}
-
-/** インデックス付き BufferGeometry → MeshData（座標は 0.01mm 単位に丸めて保存サイズを抑える） */
-export function meshDataFromGeometry(g: BufferGeometry): MeshData {
-  const pos = g.getAttribute('position')
-  const nor = g.getAttribute('normal')
-  if (!g.index) throw new Error('indexed geometry required')
-  return {
-    positions: Array.from(pos.array as ArrayLike<number>, round),
-    normals: Array.from(nor.array as ArrayLike<number>, (v) => Math.round(v * 1e4) / 1e4),
-    indices: Array.from(g.index.array as ArrayLike<number>),
-    groups: g.groups.map((gr) => ({ start: gr.start, count: gr.count, color: gr.materialIndex ?? 0 })),
-  }
 }
 
 export const triangleCount = (g: BufferGeometry): number =>

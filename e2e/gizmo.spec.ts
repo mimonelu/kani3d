@@ -107,3 +107,31 @@ test('回転円弧のドラッグでも回転中心は動かない', async ({ pa
   const c1 = await center()
   for (let i = 0; i < 3; i++) expect(c1[i]).toBeCloseTo(c0[i], 6)
 })
+
+test('ドラッグ中の Esc で取り消し、キー操作は無視される', async ({ page }) => {
+  const before = await bounds(page)
+  const h = (await handles(page))['scale:0,1,0']
+  await page.mouse.move(h.x, h.y)
+  await page.mouse.down()
+  for (let i = 1; i <= 5; i++) await page.mouse.move(h.x, h.y - i * 20)
+  await page.keyboard.press('Delete') // 無視される
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  expect(await bounds(page)).toEqual(before)
+  expect(await page.evaluate(() => (window as any).__kani.toData().length)).toBe(1)
+  // 取り消し後もカメラ操作（orbit）が有効
+  expect(await page.evaluate(() => (window as any).__kani.orbit.enabled)).toBe(true)
+})
+
+test('ドラッグ中に右ボタンを足して離しても操作が完了する', async ({ page }) => {
+  const h = (await handles(page))['lift']
+  await page.mouse.move(h.x, h.y)
+  await page.mouse.down()
+  for (let i = 1; i <= 5; i++) await page.mouse.move(h.x, h.y - i * 20)
+  await page.mouse.down({ button: 'right' })
+  await page.mouse.up()
+  await page.mouse.up({ button: 'right' })
+  expect((await bounds(page)).min[1]).toBeGreaterThan(0.02)
+  expect(await page.evaluate(() => (window as any).__kani.orbit.enabled)).toBe(true)
+  expect(await page.evaluate(() => (window as any).__kani.isDragging)).toBe(false)
+})

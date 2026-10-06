@@ -14,8 +14,6 @@ export interface MeshIssues {
   segments: number[]
 }
 
-export const issueCount = (i: MeshIssues): number => i.open + i.nonManifold + i.flipped
-
 export function checkMesh(m: Pick<MeshData, 'positions' | 'indices'>): MeshIssues {
   // 位置で溶接（法線違いで分かれた頂点を同一視）
   const ids = new Map<string, number>()

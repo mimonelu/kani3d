@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { FILE_EXT } from '../core/io'
 import { editorRef, exportGlbFile, mergeSelection, newScene, openSceneFile, saveScene, state, toggleFlatShading, ui } from '../store'
 
@@ -11,6 +11,11 @@ function onFile(e: Event) {
   if (f) openSceneFile(f)
   input.value = ''
 }
+function openFile() {
+  if (state.objectCount === 0 || confirm('現在のシーンを破棄してファイルを開きますか？')) fileInput.value?.click()
+}
+watch(() => ui.openRequest, openFile)
+
 function confirmNew() {
   if (state.objectCount === 0 || confirm('現在のシーンを破棄して新規作成しますか？')) newScene()
 }
@@ -22,7 +27,7 @@ function confirmNew() {
     <input class="name" v-model="ui.fileName" title="ファイル名" />
     <div class="group">
       <button @click="confirmNew">新規</button>
-      <button @click="fileInput?.click()" title="Ctrl+O">開く</button>
+      <button @click="openFile" title="Ctrl+O">開く</button>
       <button @click="saveScene" title="Ctrl+S">保存</button>
       <button class="primary" @click="exportGlbFile">GLB出力</button>
       <input ref="fileInput" type="file" :accept="`${FILE_EXT},.json`" hidden @change="onFile" />

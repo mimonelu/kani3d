@@ -38,3 +38,26 @@ describe('結合元 (sources)', () => {
     expect(parseDoc(stringifyDoc(doc))).toEqual(doc)
   })
 })
+
+describe('parseDoc の検証強化', () => {
+  const mesh = { positions: [0, 0, 0, 1, 0, 0, 0, 1, 0], normals: [0, 0, 1, 0, 0, 1, 0, 0, 1], indices: [0, 1, 2] }
+  const t = { position: [0, 0, 0], quaternion: [0, 0, 0, 2], scale: [1, 1, 1] }
+  const doc = (objects: unknown[]) => JSON.stringify({ format: 'kani3d', version: 1, objects })
+
+  it('重複・欠落 ID は振り直し、回転は正規化', () => {
+    const d = parseDoc(doc([{ ...cube, id: 'x' }, { ...cube, id: 'x' }, { ...cube, id: '' }]))
+    expect(new Set(d.objects.map((o) => o.id)).size).toBe(3)
+    expect(parseDoc(doc([{ ...cube, ...t }])).objects[0].quaternion).toEqual([0, 0, 0, 1])
+  })
+  it('scale 0・ゼロ長回転・不正な groups・3 の倍数でない indices はエラー', () => {
+    expect(() => parseDoc(doc([{ ...cube, scale: [0, 1, 1] }]))).toThrow()
+    expect(() => parseDoc(doc([{ ...cube, quaternion: [0, 0, 0, 0] }]))).toThrow()
+    expect(() => parseDoc(doc([{ id: 'm', kind: 'mesh', ...t, mesh: { ...mesh, groups: [{ start: 0, count: 6, color: 0 }] } }]))).toThrow()
+    expect(() => parseDoc(doc([{ id: 'm', kind: 'mesh', ...t, mesh: { ...mesh, indices: [0, 1], groups: [] } }]))).toThrow()
+    expect(() => parseDoc(doc([null]))).toThrow()
+  })
+  it('groups が空なら全体を既定色にする', () => {
+    const d = parseDoc(doc([{ id: 'm', kind: 'mesh', ...t, mesh: { ...mesh, groups: [] } }]))
+    expect((d.objects[0] as { mesh: { groups: unknown[] } }).mesh.groups).toHaveLength(1)
+  })
+})

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Editor } from '../core/Editor'
+import { getPrimitive } from '../core/primitives'
 import { bindEditor, editorRef, state } from '../store'
 
 const host = ref<HTMLDivElement>()
@@ -18,12 +19,15 @@ onMounted(() => {
   // E2E テスト・デバッグ用
   ;(window as unknown as { __kani: Editor }).__kani = editor
 })
-onBeforeUnmount(() => editorRef.value?.dispose())
+onBeforeUnmount(() => {
+  editorRef.value?.dispose()
+  delete (window as unknown as { __kani?: Editor }).__kani
+})
 
 function onDrop(e: DragEvent) {
   const id = e.dataTransfer?.getData('application/x-kani-primitive')
   const ed = editorRef.value
-  if (!id || !ed) return
+  if (!id || !ed || !getPrimitive(id)) return
   const p = ed.dropPoint(e.clientX, e.clientY)
   ed.addPrimitive(id, p ?? undefined)
 }

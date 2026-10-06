@@ -45,10 +45,6 @@ export class History {
   get canRedo(): boolean {
     return this.index < this.stack.length - 1
   }
-
-  get current(): SceneObjectData[] {
-    return this.stack[this.index]
-  }
 }
 
 const meshIds = new WeakMap<object, number>()

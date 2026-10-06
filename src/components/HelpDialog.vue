@@ -20,12 +20,13 @@ const keys: [string, string][] = [
   ['X / Y / Z', '45° 回転（Shift で逆回転）'],
   ['Ctrl+D', '複製'],
   ['Ctrl+G / Ctrl+Shift+G', '結合 / 結合解除'],
-  ['Delete', '削除'],
+  ['Delete / Backspace', '削除'],
   ['Ctrl+A / Esc', '全選択 / 選択解除'],
   ['F', '選択物が映るようにカメラを合わせる'],
   ['Home / Shift+F', 'すべてのオブジェクトが映るようにカメラを合わせる'],
-  ['Ctrl+Z / Ctrl+Shift+Z', '元に戻す / やり直し'],
-  ['Ctrl+S', '保存'],
+  ['Ctrl+Z / Ctrl+Shift+Z・Ctrl+Y', '元に戻す / やり直し'],
+  ['Ctrl+S / Ctrl+O', '保存 / 開く'],
+  ['Esc（ドラッグ中）', '操作を取り消す'],
   ['?', 'このヘルプ'],
 ]
 const sections = [

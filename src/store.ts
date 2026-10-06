@@ -1,7 +1,7 @@
 /** Vue 側の共有状態。three.js オブジェクトはリアクティブにしない（shallowRef + markRaw） */
 import { markRaw, reactive, shallowRef } from 'vue'
 import type { Editor, EditorState } from './core/Editor'
-import { createDoc, downloadBlob, FILE_EXT, parseDoc, stringifyDoc } from './core/io'
+import { downloadBlob, FILE_EXT, parseDoc, stringifyDoc } from './core/io'
 import { DEFAULT_COLOR } from './core/palette'
 
 export const editorRef = shallowRef<Editor | null>(null)
@@ -23,32 +23,63 @@ export const state = reactive<EditorState>({
   canRedo: false,
 })
 
-export const ui = reactive({ fileName: 'untitled', message: '', helpOpen: false })
+export const ui = reactive({ fileName: 'untitled', message: '', helpOpen: false, openRequest: 0 })
+
+/** ファイルを開くダイアログを要求（ToolBar が監視してファイル選択を開く） */
+export function requestOpen(): void {
+  ui.openRequest++
+}
 
 const AUTOSAVE_KEY = 'kani3d:autosave'
 const FLAT_KEY = 'kani3d:flatShading'
 
+const BACKUP_KEY = 'kani3d:autosave.bak'
+
 export function bindEditor(editor: Editor): void {
   editorRef.value = markRaw(editor)
+  // 自動保存はシーン内容が変わったとき（revision 更新時）だけ。選択変更などでは書かない
+  let savedRevision = editor.revision
   let timer = 0
+  let warned = false
+  const flush = () => {
+    clearTimeout(timer)
+    if (editor.revision === savedRevision) return
+    try {
+      localStorage.setItem(AUTOSAVE_KEY, stringifyDoc(editor.toDoc()))
+      savedRevision = editor.revision
+    } catch {
+      if (!warned) notify('自動保存できませんでした（容量超過など）。こまめに「保存」してください', 6000)
+      warned = true
+    }
+  }
   editor.onChange = (s) => {
     Object.assign(state, s)
+    if (editor.revision === savedRevision) return
     clearTimeout(timer)
-    timer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(AUTOSAVE_KEY, stringifyDoc(editor.toDoc()))
-      } catch {
-        /* 容量超過などは無視 */
-      }
-    }, 300)
+    timer = window.setTimeout(flush, 300)
   }
+  window.addEventListener('beforeunload', flush)
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flush())
+
   try {
     editor.setFlatShading(localStorage.getItem(FLAT_KEY) !== '0')
-    const saved = localStorage.getItem(AUTOSAVE_KEY)
-    if (saved) editor.loadDoc(parseDoc(saved))
   } catch {
-    /* 壊れた自動保存は無視 */
+    /* 無視 */
   }
+  let saved: string | null = null
+  try {
+    saved = localStorage.getItem(AUTOSAVE_KEY)
+    if (saved) editor.loadDoc(parseDoc(saved))
+  } catch (e) {
+    // 壊れた（または新しい版の）自動保存は上書きで失わないよう退避する
+    try {
+      if (saved) localStorage.setItem(BACKUP_KEY, saved)
+    } catch {
+      /* 無視 */
+    }
+    notify(`前回の自動保存を読み込めませんでした（${BACKUP_KEY} に退避）: ${(e as Error).message}`, 8000)
+  }
+  savedRevision = editor.revision
   Object.assign(state, editor.currentState())
 }
 
@@ -71,14 +102,17 @@ export function notify(message: string, ms = 2500): void {
 }
 
 export function newScene(): void {
-  editorRef.value?.loadDoc(createDoc([]))
+  editorRef.value?.newScene()
   ui.fileName = 'untitled'
 }
+
+/** ダウンロード用ファイル名（パス区切りや使用できない文字を除去） */
+const safeName = () => ui.fileName.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim() || 'untitled'
 
 export function saveScene(): void {
   const ed = editorRef.value
   if (!ed) return
-  downloadBlob(stringifyDoc(ed.toDoc()), ui.fileName + FILE_EXT, 'application/json')
+  downloadBlob(stringifyDoc(ed.toDoc()), safeName() + FILE_EXT, 'application/json')
 }
 
 export async function openSceneFile(file: File): Promise<void> {
@@ -95,7 +129,11 @@ export async function exportGlbFile(): Promise<void> {
   const ed = editorRef.value
   if (!ed) return
   if (state.objectCount === 0) return notify('オブジェクトがありません')
-  downloadBlob(await ed.exportGlb(), ui.fileName + '.glb', 'model/gltf-binary')
+  try {
+    downloadBlob(await ed.exportGlb(), safeName() + '.glb', 'model/gltf-binary')
+  } catch (e) {
+    notify(`GLB 出力失敗: ${(e as Error).message}`)
+  }
 }
 
 export function mergeSelection(): void {

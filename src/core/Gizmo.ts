@@ -1,6 +1,6 @@
 /**
  * Tinkercad 風の統合操作ハンドル。選択対象のバウンディングボックス上に
- *   - 拡縮ハンドル（底面の四隅・四辺中点、天面中央）: 反対側を固定して 10cm 単位で伸縮
+ *   - 拡縮ハンドル（底面の四隅・四辺中点、天面中央）: 反対側を固定して 5cm 単位で伸縮
  *   - 持ち上げハンドル（天面上の矢印）: Y 方向移動
  *   - 回転ハンドル（X/Y/Z 軸の円弧）: 中心まわりに 45° 刻みで回転
  * を表示する。本体ドラッグ（床と平行な移動）も beginMove で扱う。
@@ -448,6 +448,18 @@ export class Gizmo {
     t.updateMatrixWorld(true)
     const size = s0.multiply(newScale)
     return `${cm(size.x)} × ${cm(size.y)} × ${cm(size.z)} cm`
+  }
+
+  /** ドラッグを取り消して開始時の状態に戻す */
+  cancelDrag(): void {
+    const t = this.target, s = this.start
+    this.drag = null
+    this.protractor.visible = false
+    if (!t || !s) return
+    t.position.copy(s.pos)
+    t.quaternion.copy(s.quat)
+    t.scale.copy(s.scale)
+    t.updateMatrixWorld(true)
   }
 
   /** ドラッグ終了。変化があれば true */

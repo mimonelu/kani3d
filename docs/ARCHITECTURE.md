@@ -30,7 +30,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | キーボードショートカット | `App.vue` の `onKey` と `components/HelpDialog.vue` |
 | ツールバー / 右パネル / ビューポート HUD / ヘルプ | `components/ToolBar.vue` / `SidePanel.vue` / `ViewportPane.vue` / `HelpDialog.vue` |
 | UI 配色（ダークテーマ） | `style.css` の CSS 変数、シーン背景・グリッド色は `Editor.setupLightsAndGround` |
-| ファイル操作・自動保存（localStorage） | `store.ts` |
+| ファイル操作・自動保存（localStorage） | `store.ts`（`Editor.revision` が変わったときだけ保存。読めない自動保存は `kani3d:autosave.bak` に退避） |
 
 ## データモデル
 - 永続データは `SceneObjectData`（`types.ts`）: `primitive`（種類＋単色）か `mesh`（結合結果の頂点データ `MeshData`）。どちらも position / quaternion / scale を持つ。
@@ -42,6 +42,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 ## 操作とスナップ（Editor + Gizmo）
 - マウス: 左=選択・ハンドル・本体ドラッグ（Shift/Ctrl+クリックで追加選択）、中=パン、右=回転、ホイール=ズーム（OrbitControls の LEFT は無効）。
 - `Editor.onPointerDown` の優先順: ハンドル → オブジェクト（選択してそのまま本体ドラッグ）→ 空白（クリックで選択解除）。
+- ポインタは押した 1 本だけを追跡（pointerId・キャプチャ）。終了は「全ボタン解放」で判定し、`pointercancel`・キャプチャ喪失・ウィンドウのフォーカス喪失・Esc は `cancelDrag()` で開始前に戻す。ドラッグ中は他のキー操作を受け付けない（`App.vue` が `Editor.isDragging` を見る）。
 - Gizmo は Tinkercad 風の統合ハンドル。サイズは画面上で一定（`HANDLE_PX`）、`depthTest:false` で常に手前に描画。
   - 本体ドラッグ: 掴んだ点の高さの水平面上を移動。
   - 持ち上げ（天面上の矢印）: Y 移動。

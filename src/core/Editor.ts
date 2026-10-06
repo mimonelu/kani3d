@@ -99,7 +99,7 @@ export class Editor {
   private frame = 0
   private resizeObserver: ResizeObserver
   /** 左ボタン押下中の状態。clickId は「動かさずに離したら単独選択にする」対象 */
-  private pointer: { x: number; y: number; dragging: boolean; clickId: string | null } | null = null
+  private pointer: { id: number; x: number; y: number; dragging: boolean; clickId: string | null } | null = null
   private dragInfo = ''
   private xray = false
 
@@ -127,8 +127,10 @@ export class Editor {
     el.addEventListener('pointerdown', this.onPointerDown)
     el.addEventListener('pointermove', this.onPointerMove)
     el.addEventListener('pointerup', this.onPointerUp)
-    el.addEventListener('pointercancel', this.onPointerUp)
-    el.addEventListener('contextmenu', (e) => e.preventDefault())
+    el.addEventListener('pointercancel', this.cancelDrag)
+    el.addEventListener('lostpointercapture', this.onLostCapture)
+    el.addEventListener('contextmenu', this.onContextMenu)
+    window.addEventListener('blur', this.cancelDrag)
 
     this.resizeObserver = new ResizeObserver(() => this.resize())
     this.resizeObserver.observe(container)
@@ -140,9 +142,27 @@ export class Editor {
   dispose(): void {
     cancelAnimationFrame(this.frame)
     this.resizeObserver.disconnect()
+    const el = this.renderer.domElement
+    el.removeEventListener('pointerdown', this.onPointerDown)
+    el.removeEventListener('pointermove', this.onPointerMove)
+    el.removeEventListener('pointerup', this.onPointerUp)
+    el.removeEventListener('pointercancel', this.cancelDrag)
+    el.removeEventListener('lostpointercapture', this.onLostCapture)
+    el.removeEventListener('contextmenu', this.onContextMenu)
+    window.removeEventListener('blur', this.cancelDrag)
+    this.setSelection([])
+    for (const m of this.meshes) disposeMesh(m)
+    // グリッド・軸ライン・ギズモなど残りのリソース
+    this.scene.traverse((o) => {
+      const r = o as Partial<Mesh>
+      r.geometry?.dispose()
+      const mats = Array.isArray(r.material) ? r.material : r.material ? [r.material] : []
+      for (const mat of mats) if (!paletteMaterials().includes(mat as never)) mat.dispose()
+    })
     this.orbit.dispose()
     this.renderer.dispose()
-    this.renderer.domElement.remove()
+    this.renderer.forceContextLoss()
+    el.remove()
   }
 
   // ------------------------------------------------------------ setup
@@ -267,6 +287,7 @@ export class Editor {
   loadDoc(doc: SceneDoc): void {
     this.restore(doc.objects)
     this.history.reset(this.toData())
+    this.revision++
     if (doc.objects.length) this.frameAll()
     else this.resetView()
     this.emit()
@@ -278,27 +299,34 @@ export class Editor {
 
   // ------------------------------------------------------------ history
 
+  /** シーン内容が変わるたびに増える（自動保存の要否判定用。選択変更などでは増えない） */
+  revision = 0
+
   private commit(): void {
-    if (this.history.push(this.toData())) this.emit()
+    if (!this.history.push(this.toData())) return
+    this.revision++
+    this.emit()
   }
 
   undo(): void {
     const d = this.history.undo()
-    if (d) this.restore(d, this.selection)
+    if (d) {
+      this.restore(d, this.selection)
+      this.revision++
+    }
     this.emit()
   }
 
   redo(): void {
     const d = this.history.redo()
-    if (d) this.restore(d, this.selection)
+    if (d) {
+      this.restore(d, this.selection)
+      this.revision++
+    }
     this.emit()
   }
 
   // ------------------------------------------------------------ selection
-
-  getSelection(): string[] {
-    return [...this.selection]
-  }
 
   setSelection(ids: string[]): void {
     this.releasePivot()
@@ -355,7 +383,7 @@ export class Editor {
 
   // ------------------------------------------------------------ snapping
 
-  /** バウンディングボックス最小点を 10cm 格子へ（原点基準ではないので奇数サイズや回転後も面が格子に揃う） */
+  /** バウンディングボックス最小点を 5cm 格子へ（原点基準ではないので奇数サイズや回転後も面が格子に揃う） */
   private snapBoxMin(obj: Object3D): void {
     obj.updateMatrixWorld(true)
     const box = new Box3().setFromObject(obj, true)
@@ -425,9 +453,9 @@ export class Editor {
   setColor(color: number): void {
     this.currentColor = color
     this.emit()
-    if (!this.selection.length) return
     for (const id of this.selection) {
       const m = this.meshById(id)!
+      if (m.geometry.groups.every((g) => g.materialIndex === color)) continue // 変化なしは履歴に積まない
       const ud = m.userData as ObjUserData
       if (ud.kind === 'mesh') {
         ud.mesh = { ...ud.mesh, groups: [{ start: 0, count: ud.mesh.indices.length, color }] }
@@ -493,7 +521,14 @@ export class Editor {
     this.releasePivot()
     const sel = this.selection.map((id) => this.meshById(id)!)
     for (const m of sel) m.updateMatrixWorld(true)
-    const { mesh, center } = mergeObjects(sel.map((m) => ({ geometry: m.geometry, matrixWorld: m.matrixWorld })))
+    let merged: ReturnType<typeof mergeObjects>
+    try {
+      merged = mergeObjects(sel.map((m) => ({ geometry: m.geometry, matrixWorld: m.matrixWorld })))
+    } catch (e) {
+      this.attachTransform() // pivot を外したままにしない
+      throw e
+    }
+    const { mesh, center } = merged
     for (const m of sel) {
       disposeMesh(m)
     }
@@ -553,7 +588,10 @@ export class Editor {
       }
       disposeMesh(m)
     }
-    if (!restored.length) return []
+    if (!restored.length) {
+      this.attachTransform()
+      return []
+    }
     this.setSelection([...keep, ...restored])
     this.commit()
     return restored
@@ -648,15 +686,37 @@ export class Editor {
     this.raycaster.setFromCamera(this.ndc(e.clientX, e.clientY), this.camera)
   }
 
+  get isDragging(): boolean {
+    return !!this.pointer?.dragging
+  }
+
+  /** ドラッグを取り消して開始前の状態に戻す（pointercancel・フォーカス喪失・Esc） */
+  cancelDrag = (): void => {
+    const p = this.pointer
+    this.pointer = null
+    if (!p?.dragging) return
+    this.gizmo.cancelDrag()
+    this.orbit.enabled = true
+    this.dragInfo = ''
+    this.emit()
+  }
+
+  private onLostCapture = (e: PointerEvent): void => {
+    if (this.pointer && e.pointerId === this.pointer.id) this.cancelDrag()
+  }
+
+  private onContextMenu = (e: Event): void => e.preventDefault()
+
   private onPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || this.pointer) return // 2本目の指・ペンなどは無視
     this.setRay(e)
-    this.pointer = { x: e.clientX, y: e.clientY, dragging: false, clickId: null }
+    this.pointer = { id: e.pointerId, x: e.clientX, y: e.clientY, dragging: false, clickId: null }
+    this.capture(e) // 空白クリックでもキャンバス外で離したときに pointerup を受け取る
     // 1) ハンドル
     const handle = this.gizmo.pick(this.raycaster)
     if (handle) {
       this.gizmo.beginHandleDrag(handle, this.raycaster.ray)
-      this.startDrag(e)
+      this.startDrag()
       return
     }
     // 2) オブジェクト: Shift/Ctrl は選択の追加・解除のみ。通常は選択してそのまま床と平行に移動
@@ -671,12 +731,15 @@ export class Editor {
     if (!this.selection.includes(id)) this.setSelection([id])
     else this.pointer.clickId = id
     this.gizmo.beginMove(hit.point)
-    this.startDrag(e)
+    this.startDrag()
   }
 
-  private startDrag(e: PointerEvent): void {
+  private startDrag(): void {
     this.pointer!.dragging = true
     this.orbit.enabled = false
+  }
+
+  private capture(e: PointerEvent): void {
     try {
       this.renderer.domElement.setPointerCapture(e.pointerId)
     } catch {
@@ -703,8 +766,9 @@ export class Editor {
 
   private onPointerUp = (e: PointerEvent): void => {
     const p = this.pointer
+    // 押したポインタの解放で終える（ドラッグ中に右ボタンを足した場合なども button では判定しない）
+    if (!p || e.pointerId !== p.id || (e.buttons & 1) !== 0) return
     this.pointer = null
-    if (!p || e.button !== 0) return
     const clicked = Math.hypot(e.clientX - p.x, e.clientY - p.y) <= 4
     if (p.dragging) {
       this.orbit.enabled = true

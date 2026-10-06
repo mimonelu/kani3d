@@ -4,12 +4,18 @@ import SidePanel from './components/SidePanel.vue'
 import ToolBar from './components/ToolBar.vue'
 import ViewportPane from './components/ViewportPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
-import { editorRef, mergeSelection, saveScene, ui } from './store'
+import { editorRef, mergeSelection, requestOpen, saveScene, ui } from './store'
 
 function onKey(e: KeyboardEvent) {
   const ed = editorRef.value
   const t = e.target as HTMLElement
-  if (!ed || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return
+  if (!ed || e.isComposing || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable) return
+  // ドラッグ中は Esc（取り消し）以外を受け付けない（操作中のオブジェクトを作り直すと状態が壊れるため）
+  if (ed.isDragging) {
+    if (e.key === 'Escape') ed.cancelDrag()
+    e.preventDefault()
+    return
+  }
   if (ui.helpOpen) {
     if (e.key === 'Escape' || e.key === '?') ui.helpOpen = false
     return
@@ -25,6 +31,7 @@ function onKey(e: KeyboardEvent) {
       if (k === 'g') return e.shiftKey ? ed.unmergeSelected() : mergeSelection(), true
       if (k === 'a') return ed.selectAll(), true
       if (k === 's') return saveScene(), true
+      if (k === 'o') return requestOpen(), true
       return false
     }
     switch (e.key) {
