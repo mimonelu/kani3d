@@ -14,12 +14,12 @@ export const state = reactive<EditorState>({
   selectionColor: null,
   selectionSize: null,
   currentColor: DEFAULT_COLOR,
-  mode: 'translate',
+  dragInfo: '',
   canUndo: false,
   canRedo: false,
 })
 
-export const ui = reactive({ fileName: 'untitled', message: '' })
+export const ui = reactive({ fileName: 'untitled', message: '', helpOpen: false })
 
 const AUTOSAVE_KEY = 'kani3d:autosave'
 

@@ -1,8 +1,29 @@
+:root {
+  color-scheme: dark;
+  --bg: #16191d;
+  --panel: #21262c;
+  --panel-2: #2a3038;
+  --border: #353c46;
+  --text: #dfe3e8;
+  --text-dim: #8b95a1;
+  --accent: #ff9f1a;
+  --primary: #2f7de1;
+  --button: #313843;
+  --button-hover: #3d4653;
+}
+
 html,
 body,
 #app {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
   font-family: system-ui, -apple-system, 'Hiragino Sans', sans-serif;
+}
+
+button {
+  font: inherit;
+  color: inherit;
 }

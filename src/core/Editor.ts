@@ -5,6 +5,7 @@
  */
 import {
   AmbientLight,
+  CanvasTexture,
   Box3,
   BoxHelper,
   Color,
@@ -12,20 +13,24 @@ import {
   GridHelper,
   HemisphereLight,
   MOUSE,
+  MeshBasicMaterial,
   Mesh,
   Object3D,
   PerspectiveCamera,
+  PlaneGeometry,
   Plane,
   Raycaster,
   Scene,
+  Sprite,
+  SpriteMaterial,
   Vector2,
   Vector3,
   WebGLRenderer,
   type BufferGeometry,
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { GRID, GRID_EXTENT, ROT_STEP, snapValue } from './constants'
+import { AXIS_COLOR, Gizmo } from './Gizmo'
 import { History } from './history'
 import { createDoc, exportGlb } from './io'
 import { mergeObjects } from './merge'
@@ -33,8 +38,6 @@ import { geometryFromMeshData, setSingleColor, triangleCount } from './meshData'
 import { DEFAULT_COLOR, paletteMaterials } from './palette'
 import { buildPrimitiveGeometry, getPrimitive } from './primitives'
 import type { MeshData, SceneDoc, SceneObjectData, Vec3, Quat } from './types'
-
-export type TransformMode = 'translate' | 'rotate' | 'scale'
 
 export interface EditorState {
   objectCount: number
@@ -46,7 +49,8 @@ export interface EditorState {
   /** 選択物全体のサイズ (m) */
   selectionSize: Vec3 | null
   currentColor: number
-  mode: TransformMode
+  /** ドラッグ中の寸法・角度など（HUD 表示用） */
+  dragInfo: string
   canUndo: boolean
   canRedo: boolean
 }
@@ -61,7 +65,7 @@ export class Editor {
   readonly camera = new PerspectiveCamera(45, 1, 0.01, 200)
   readonly renderer: WebGLRenderer
   readonly orbit: OrbitControls
-  readonly transform: TransformControls
+  readonly gizmo: Gizmo
 
   private readonly objectRoot = new Object3D()
   private readonly pivot = new Object3D()
@@ -70,12 +74,13 @@ export class Editor {
   private readonly raycaster = new Raycaster()
   private readonly groundPlane = new Plane(new Vector3(0, 1, 0), 0)
   private selection: string[] = []
-  private mode: TransformMode = 'translate'
   /** 新規オブジェクトの色（パレットで最後に選んだ色） */
   private currentColor = DEFAULT_COLOR
   private frame = 0
   private resizeObserver: ResizeObserver
-  private pointerDown: { x: number; y: number; onGizmo: boolean } | null = null
+  /** 左ボタン押下中の状態。clickId は「動かさずに離したら単独選択にする」対象 */
+  private pointer: { x: number; y: number; dragging: boolean; clickId: string | null } | null = null
+  private dragInfo = ''
 
   onChange: (s: EditorState) => void = () => {}
 
@@ -83,9 +88,9 @@ export class Editor {
     this.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     container.appendChild(this.renderer.domElement)
-    this.scene.background = new Color('#dfe4ea')
+    this.scene.background = new Color('#1b1f24')
 
-    this.camera.position.set(1.2, 1.1, 1.6)
+    this.camera.position.set(0.75, 0.7, 1.0)
     this.setupLightsAndGround()
     this.scene.add(this.objectRoot, this.pivot)
 
@@ -96,19 +101,14 @@ export class Editor {
     this.orbit.enableDamping = false
     this.orbit.update()
 
-    this.transform = new TransformControls(this.camera, this.renderer.domElement)
-    this.transform.setRotationSnap(ROT_STEP)
-    this.transform.setSize(0.9)
-    this.scene.add(this.transform.getHelper())
-    this.transform.addEventListener('dragging-changed', (e) => {
-      this.orbit.enabled = !e.value
-      if (!e.value) this.commit()
-    })
-    this.transform.addEventListener('objectChange', () => this.snapAttached())
+    this.gizmo = new Gizmo(this.camera, (o) => this.snapBoxMin(o))
+    this.scene.add(this.gizmo.root)
 
     const el = this.renderer.domElement
     el.addEventListener('pointerdown', this.onPointerDown)
+    el.addEventListener('pointermove', this.onPointerMove)
     el.addEventListener('pointerup', this.onPointerUp)
+    el.addEventListener('pointercancel', this.onPointerUp)
     el.addEventListener('contextmenu', (e) => e.preventDefault())
 
     this.resizeObserver = new ResizeObserver(() => this.resize())
@@ -121,7 +121,6 @@ export class Editor {
   dispose(): void {
     cancelAnimationFrame(this.frame)
     this.resizeObserver.disconnect()
-    this.transform.dispose()
     this.orbit.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
@@ -136,12 +135,26 @@ export class Editor {
     dir.position.set(3, 5, 2)
     this.scene.add(dir)
 
-    const minor = new GridHelper(GRID_EXTENT, Math.round(GRID_EXTENT / GRID), '#9aa5b1', '#b8c1cb')
-    const major = new GridHelper(GRID_EXTENT, GRID_EXTENT, '#5c6b7a', '#7f8c99')
+    const minor = new GridHelper(GRID_EXTENT, Math.round(GRID_EXTENT / GRID), '#2e353e', '#2e353e')
+    const major = new GridHelper(GRID_EXTENT, GRID_EXTENT, '#4a5562', '#4a5562')
     minor.position.y = -0.0005
     for (const g of [minor, major]) {
       g.raycast = () => {}
       this.scene.add(g)
+    }
+    // 原点から +X / +Z 方向の軸ライン（細い板で太さを出す）
+    const half = GRID_EXTENT / 2
+    for (const axis of ['x', 'z'] as const) {
+      const w = 0.006
+      const geo = new PlaneGeometry(axis === 'x' ? half : w, axis === 'x' ? w : half).rotateX(-Math.PI / 2)
+      const line = new Mesh(geo, new MeshBasicMaterial({ color: AXIS_COLOR[axis], depthWrite: false }))
+      line.position.set(axis === 'x' ? half / 2 : 0, 0.0008, axis === 'z' ? half / 2 : 0)
+      line.raycast = () => {}
+      line.renderOrder = 1
+      this.scene.add(line)
+      const label = axisLabel(axis === 'x' ? '+X' : '+Z', AXIS_COLOR[axis])
+      label.position.set(axis === 'x' ? half + 0.12 : 0, 0.02, axis === 'z' ? half + 0.12 : 0)
+      this.scene.add(label)
     }
   }
 
@@ -156,6 +169,8 @@ export class Editor {
   private loop = (): void => {
     this.frame = requestAnimationFrame(this.loop)
     for (const h of this.helpers.values()) h.update()
+    this.gizmo.viewportHeight = this.renderer.domElement.clientHeight || 1
+    this.gizmo.update()
     this.renderer.render(this.scene, this.camera)
   }
 
@@ -284,15 +299,21 @@ export class Editor {
     this.setSelection(this.meshes.map((m) => (m.userData as ObjUserData).id))
   }
 
-  /** 複数選択時は pivot にまとめてギズモを付ける（移動・回転のみ） */
+  /** 操作対象: 単独選択ならそのメッシュ、複数なら pivot */
+  private get transformTarget(): Object3D | null {
+    if (this.selection.length === 0) return null
+    return this.selection.length === 1 ? (this.meshById(this.selection[0]) ?? null) : this.pivot
+  }
+
+  /** 複数選択時は pivot にまとめてハンドルを付ける（移動・回転のみ。拡縮は単独選択時） */
   private attachTransform(): void {
     const sel = this.selection.map((id) => this.meshById(id)!).filter(Boolean)
     if (sel.length === 0) {
-      this.transform.detach()
+      this.gizmo.detach()
       return
     }
     if (sel.length === 1) {
-      this.transform.attach(sel[0])
+      this.gizmo.attach(sel[0], sel[0].geometry.boundingBox!, true)
     } else {
       const box = new Box3()
       for (const m of sel) box.expandByObject(m, true)
@@ -301,42 +322,17 @@ export class Editor {
       this.pivot.scale.set(1, 1, 1)
       this.pivot.updateMatrixWorld()
       for (const m of sel) this.pivot.attach(m)
-      this.transform.attach(this.pivot)
-      if (this.mode === 'scale') this.mode = 'translate'
+      this.gizmo.attach(this.pivot, box.translate(this.pivot.position.clone().negate()), false)
     }
-    this.transform.setMode(this.mode)
-    this.transform.setSpace(this.mode === 'translate' ? 'world' : 'local')
   }
 
   private releasePivot(): void {
     for (const c of [...this.pivot.children]) this.objectRoot.attach(c)
   }
 
-  setMode(mode: TransformMode): void {
-    if (mode === 'scale' && this.selection.length > 1) return
-    this.mode = mode
-    this.transform.setMode(mode)
-    this.transform.setSpace(mode === 'translate' ? 'world' : 'local')
-    this.emit()
-  }
-
   // ------------------------------------------------------------ snapping
 
-  /** ギズモ操作中の対象をグリッドにスナップ（拡縮はサイズを 10cm 単位、位置はバウンディングボックス最小点） */
-  private snapAttached(): void {
-    const obj = this.transform.object
-    if (!obj) return
-    if (this.mode === 'scale' && obj instanceof Mesh) {
-      const s0 = obj.geometry.boundingBox!.getSize(new Vector3())
-      for (const axis of ['x', 'y', 'z'] as const) {
-        if (s0[axis] < 1e-6) continue
-        const size = Math.max(GRID, snapValue(s0[axis] * Math.abs(obj.scale[axis])))
-        obj.scale[axis] = size / s0[axis]
-      }
-    }
-    this.snapBoxMin(obj)
-  }
-
+  /** バウンディングボックス最小点を 10cm 格子へ（原点基準ではないので奇数サイズや回転後も面が格子に揃う） */
   private snapBoxMin(obj: Object3D): void {
     obj.updateMatrixWorld(true)
     const box = new Box3().setFromObject(obj, true)
@@ -421,7 +417,7 @@ export class Editor {
 
   /** 選択物を移動（矢印キー用）。delta はグリッド単位 */
   nudge(dx: number, dy: number, dz: number): void {
-    const obj = this.transform.object
+    const obj = this.transformTarget
     if (!obj) return
     obj.position.add(new Vector3(dx, dy, dz).multiplyScalar(GRID))
     this.snapBoxMin(obj)
@@ -430,10 +426,13 @@ export class Editor {
 
   /** 選択物を指定軸まわりに 45° 回転 */
   rotateSelected(axis: 'x' | 'y' | 'z', dir = 1): void {
-    const obj = this.transform.object
+    const obj = this.transformTarget
     if (!obj) return
     const v = new Vector3()
     v[axis] = 1
+    // ボックス中心まわりに回転
+    const c = new Box3().setFromObject(obj, true).getCenter(new Vector3())
+    obj.position.sub(c).applyAxisAngle(v, ROT_STEP * dir).add(c)
     obj.rotateOnWorldAxis(v, ROT_STEP * dir)
     this.snapBoxMin(obj)
     this.commit()
@@ -509,22 +508,89 @@ export class Editor {
     return this.raycaster.ray.intersectPlane(this.groundPlane, new Vector3())
   }
 
+  /** テスト・デバッグ用: ハンドルのクライアント座標 */
+  debugHandleScreen(): Record<string, { x: number; y: number }> {
+    const r = this.renderer.domElement.getBoundingClientRect()
+    const out: Record<string, { x: number; y: number }> = {}
+    for (const { name, world } of this.gizmo.debugHandles()) {
+      const p = world.project(this.camera)
+      out[name] = { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height }
+    }
+    return out
+  }
+
+  private setRay(e: PointerEvent): void {
+    this.raycaster.setFromCamera(this.ndc(e.clientX, e.clientY), this.camera)
+  }
+
   private onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0) return
-    this.pointerDown = { x: e.clientX, y: e.clientY, onGizmo: this.transform.axis !== null }
+    this.setRay(e)
+    this.pointer = { x: e.clientX, y: e.clientY, dragging: false, clickId: null }
+    // 1) ハンドル
+    const handle = this.gizmo.pick(this.raycaster)
+    if (handle) {
+      this.gizmo.beginHandleDrag(handle, this.raycaster.ray)
+      this.startDrag(e)
+      return
+    }
+    // 2) オブジェクト: Shift/Ctrl は選択の追加・解除のみ。通常は選択してそのまま床と平行に移動
+    const hit = this.raycaster.intersectObjects(this.meshes, false)[0]
+    if (!hit) return
+    const id = (hit.object.userData as ObjUserData).id
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      this.setSelection(this.selection.includes(id) ? this.selection.filter((s) => s !== id) : [...this.selection, id])
+      this.pointer = null
+      return
+    }
+    if (!this.selection.includes(id)) this.setSelection([id])
+    else this.pointer.clickId = id
+    this.gizmo.beginMove(hit.point)
+    this.startDrag(e)
+  }
+
+  private startDrag(e: PointerEvent): void {
+    this.pointer!.dragging = true
+    this.orbit.enabled = false
+    try {
+      this.renderer.domElement.setPointerCapture(e.pointerId)
+    } catch {
+      /* 合成イベントなど */
+    }
+  }
+
+  private onPointerMove = (e: PointerEvent): void => {
+    this.setRay(e)
+    if (this.pointer?.dragging && this.gizmo.dragging) {
+      const info = this.gizmo.updateDrag(this.raycaster.ray, e.shiftKey)
+      if (info !== this.dragInfo) {
+        this.dragInfo = info
+        this.emit()
+      }
+      return
+    }
+    if (this.pointer) return
+    const h = this.gizmo.pick(this.raycaster)
+    this.gizmo.setHover(h)
+    const overObject = !h && this.raycaster.intersectObjects(this.meshes, false).length > 0
+    this.renderer.domElement.style.cursor = h ? 'grab' : overObject ? 'move' : ''
   }
 
   private onPointerUp = (e: PointerEvent): void => {
-    const d = this.pointerDown
-    this.pointerDown = null
-    if (e.button !== 0 || !d || d.onGizmo) return
-    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return
-    const hit = this.pick(e.clientX, e.clientY)
-    const id = hit ? (hit.object.userData as ObjUserData).id : null
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      if (!id) return
-      this.setSelection(this.selection.includes(id) ? this.selection.filter((s) => s !== id) : [...this.selection, id])
-    } else this.setSelection(id ? [id] : [])
+    const p = this.pointer
+    this.pointer = null
+    if (!p || e.button !== 0) return
+    const clicked = Math.hypot(e.clientX - p.x, e.clientY - p.y) <= 4
+    if (p.dragging) {
+      this.orbit.enabled = true
+      const changed = this.gizmo.endDrag()
+      this.dragInfo = ''
+      if (changed) this.commit()
+      else if (clicked && p.clickId && this.selection.length > 1) this.setSelection([p.clickId])
+      this.emit()
+      return
+    }
+    if (clicked) this.setSelection([])
   }
 
   // ------------------------------------------------------------ state
@@ -544,7 +610,7 @@ export class Editor {
         const b = this.selectionBounds()
         return b ? (b.max.map((v, i) => Math.round((v - b.min[i]) * 1e4) / 1e4) as Vec3) : null
       })(),
-      mode: this.mode,
+      dragInfo: this.dragInfo,
       canUndo: this.history.canUndo,
       canRedo: this.history.canRedo,
     }
@@ -553,4 +619,21 @@ export class Editor {
   private emit(): void {
     this.onChange(this.currentState())
   }
+}
+
+/** 地面に置く軸ラベル（スプライト） */
+function axisLabel(text: string, color: string): Sprite {
+  const c = document.createElement('canvas')
+  c.width = 128
+  c.height = 64
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 44px system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = color
+  ctx.fillText(text, 64, 32)
+  const sprite = new Sprite(new SpriteMaterial({ map: new CanvasTexture(c), depthWrite: false }))
+  sprite.scale.set(0.2, 0.1, 1)
+  sprite.raycast = () => {}
+  return sprite
 }

@@ -1,15 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { TransformMode } from '../core/Editor'
 import { FILE_EXT } from '../core/io'
 import { editorRef, exportGlbFile, mergeSelection, newScene, openSceneFile, saveScene, state, ui } from '../store'
 
 const fileInput = ref<HTMLInputElement>()
-const modes: { id: TransformMode; label: string; key: string }[] = [
-  { id: 'translate', label: '移動', key: 'W' },
-  { id: 'rotate', label: '回転', key: 'E' },
-  { id: 'scale', label: '拡縮', key: 'R' },
-]
 
 function onFile(e: Event) {
   const input = e.target as HTMLInputElement
@@ -38,23 +32,12 @@ function confirmNew() {
       <button :disabled="!state.canRedo" @click="editorRef?.redo()" title="Ctrl+Shift+Z">やり直し</button>
     </div>
     <div class="group">
-      <button
-        v-for="m in modes"
-        :key="m.id"
-        :class="{ active: state.mode === m.id }"
-        :disabled="m.id === 'scale' && state.selection.length > 1"
-        :title="m.key"
-        @click="editorRef?.setMode(m.id)"
-      >
-        {{ m.label }}
-      </button>
-    </div>
-    <div class="group">
       <button :disabled="!state.selection.length" @click="editorRef?.duplicateSelected()" title="Ctrl+D">複製</button>
       <button :disabled="!state.selection.length" @click="editorRef?.deleteSelected()" title="Delete">削除</button>
       <button :disabled="state.selection.length < 2" @click="mergeSelection" title="Ctrl+G">結合</button>
     </div>
     <span class="message">{{ ui.message }}</span>
+    <button class="help" title="ヘルプ (?)" @click="ui.helpOpen = true">?</button>
   </header>
 </template>
 
@@ -64,8 +47,8 @@ function confirmNew() {
   align-items: center;
   gap: 12px;
   padding: 6px 12px;
-  background: #2b3440;
-  color: #eef;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
 .logo {
@@ -73,9 +56,9 @@ function confirmNew() {
 }
 .name {
   width: 120px;
-  background: #1d242c;
-  color: #eef;
-  border: 1px solid #455;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 3px 6px;
 }
@@ -83,11 +66,10 @@ function confirmNew() {
   display: flex;
   gap: 2px;
   padding-left: 12px;
-  border-left: 1px solid #455;
+  border-left: 1px solid var(--border);
 }
 button {
-  background: #3b4654;
-  color: #eef;
+  background: var(--button);
   border: none;
   border-radius: 4px;
   padding: 5px 10px;
@@ -95,22 +77,25 @@ button {
   font-size: 13px;
 }
 button:hover:not(:disabled) {
-  background: #4d5a6b;
+  background: var(--button-hover);
 }
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: default;
 }
-button.active {
-  background: #ff8a00;
-  color: #222;
-}
 button.primary {
-  background: #2f7de1;
+  background: var(--primary);
 }
 .message {
   margin-left: auto;
   font-size: 12px;
-  color: #ffd27f;
+  color: var(--accent);
+}
+.help {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  font-weight: bold;
 }
 </style>

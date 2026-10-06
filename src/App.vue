@@ -3,12 +3,18 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import SidePanel from './components/SidePanel.vue'
 import ToolBar from './components/ToolBar.vue'
 import ViewportPane from './components/ViewportPane.vue'
-import { editorRef, mergeSelection, saveScene } from './store'
+import HelpDialog from './components/HelpDialog.vue'
+import { editorRef, mergeSelection, saveScene, ui } from './store'
 
 function onKey(e: KeyboardEvent) {
   const ed = editorRef.value
   const t = e.target as HTMLElement
   if (!ed || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return
+  if (ui.helpOpen) {
+    if (e.key === 'Escape' || e.key === '?') ui.helpOpen = false
+    return
+  }
+  if (e.key === '?') return (ui.helpOpen = true), e.preventDefault()
   const mod = e.ctrlKey || e.metaKey
   const k = e.key.toLowerCase()
   const handled = (() => {
@@ -33,9 +39,6 @@ function onKey(e: KeyboardEvent) {
       case 'PageDown': return ed.nudge(0, -1, 0), true
     }
     switch (k) {
-      case 'w': return ed.setMode('translate'), true
-      case 'e': return ed.setMode('rotate'), true
-      case 'r': return ed.setMode('scale'), true
       case 'x':
       case 'y':
       case 'z': return ed.rotateSelected(k, e.shiftKey ? -1 : 1), true
@@ -57,6 +60,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <ViewportPane />
       <SidePanel />
     </main>
+    <HelpDialog />
   </div>
 </template>
 

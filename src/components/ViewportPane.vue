@@ -31,7 +31,7 @@ function onDrop(e: DragEvent) {
       <span v-if="state.selection.length">選択 {{ state.selection.length }}（{{ state.selectionTriangles }} 三角形）</span>
       <span v-if="state.selectionSize" class="size">{{ state.selectionSize.map(cm).join(' × ') }} cm</span>
     </div>
-    <div class="hint">左クリック: 選択（Shift で追加） / 右ドラッグ: 回転 / 中ドラッグ: 移動 / ホイール: 拡縮</div>
+    <div v-if="state.dragInfo" class="drag-info">{{ state.dragInfo }}</div>
   </div>
 </template>
 
@@ -46,22 +46,26 @@ function onDrop(e: DragEvent) {
   display: block;
 }
 .hud,
-.hint {
+.drag-info {
   position: absolute;
-  left: 8px;
   pointer-events: none;
   font-size: 12px;
-  color: #334;
-  background: rgba(255, 255, 255, 0.7);
-  padding: 2px 8px;
+  background: rgba(20, 24, 28, 0.75);
+  padding: 3px 8px;
   border-radius: 4px;
 }
 .hud {
   top: 8px;
+  left: 8px;
   display: flex;
   gap: 12px;
+  color: var(--text-dim);
 }
-.hint {
-  bottom: 8px;
+.drag-info {
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  color: var(--accent);
 }
 </style>

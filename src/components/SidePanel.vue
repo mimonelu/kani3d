@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { PALETTE } from '../core/palette'
-import { PRIMITIVES } from '../core/primitives'
+import { PRIMITIVES, type PrimitiveDef } from '../core/primitives'
 import { renderPrimitiveThumbnails } from '../core/thumbnails'
 import { editorRef, state } from '../store'
 
@@ -14,6 +14,12 @@ onMounted(() => {
   }
 })
 
+const categories = computed(() => {
+  const map = new Map<string, PrimitiveDef[]>()
+  for (const p of PRIMITIVES) map.set(p.category, [...(map.get(p.category) ?? []), p])
+  return [...map]
+})
+
 function onDragStart(e: DragEvent, id: string) {
   e.dataTransfer?.setData('application/x-kani-primitive', id)
 }
@@ -24,21 +30,24 @@ const activeColor = () => state.selectionColor ?? state.currentColor
   <aside class="panel">
     <section>
       <h3>プリミティブ</h3>
-      <p class="note">クリックで追加（選択中なら上に積む）／ドラッグで配置</p>
-      <div class="prims">
-        <button
-          v-for="p in PRIMITIVES"
-          :key="p.id"
-          class="prim"
-          :data-primitive="p.id"
-          draggable="true"
-          @dragstart="onDragStart($event, p.id)"
-          @click="editorRef?.addPrimitive(p.id)"
-        >
-          <img v-if="thumbs[p.id]" :src="thumbs[p.id]" alt="" />
-          <span>{{ p.label }}</span>
-        </button>
-      </div>
+      <template v-for="[cat, items] in categories" :key="cat">
+        <h4>{{ cat }}</h4>
+        <div class="prims">
+          <button
+            v-for="p in items"
+            :key="p.id"
+            class="prim"
+            :data-primitive="p.id"
+            :title="p.label"
+            draggable="true"
+            @dragstart="onDragStart($event, p.id)"
+            @click="editorRef?.addPrimitive(p.id)"
+          >
+            <img v-if="thumbs[p.id]" :src="thumbs[p.id]" alt="" />
+            <span>{{ p.label }}</span>
+          </button>
+        </div>
+      </template>
     </section>
     <section>
       <h3>カラー</h3>
@@ -55,20 +64,6 @@ const activeColor = () => state.selectionColor ?? state.currentColor
         />
       </div>
     </section>
-    <section class="help">
-      <h3>ショートカット</h3>
-      <dl>
-        <dt>W / E / R</dt><dd>移動 / 回転 / 拡縮</dd>
-        <dt>矢印 / PgUp・PgDn</dt><dd>10cm 移動（水平 / 垂直）</dd>
-        <dt>X / Y / Z</dt><dd>45° 回転（Shift で逆）</dd>
-        <dt>Ctrl+D</dt><dd>複製</dd>
-        <dt>Ctrl+G</dt><dd>結合</dd>
-        <dt>Delete</dt><dd>削除</dd>
-        <dt>Ctrl+A / Esc</dt><dd>全選択 / 選択解除</dd>
-        <dt>F</dt><dd>選択物にフォーカス</dd>
-        <dt>Ctrl+Z / Ctrl+Shift+Z</dt><dd>元に戻す / やり直し</dd>
-      </dl>
-    </section>
   </aside>
 </template>
 
@@ -77,43 +72,45 @@ const activeColor = () => state.selectionColor ?? state.currentColor
   width: 280px;
   flex-shrink: 0;
   overflow-y: auto;
-  background: #f5f6f8;
-  border-left: 1px solid #ccd;
-  padding: 8px 12px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 4px 12px 12px;
   font-size: 13px;
 }
 h3 {
-  margin: 8px 0 6px;
+  margin: 10px 0 6px;
   font-size: 13px;
-  color: #445;
 }
-.note {
-  margin: 0 0 6px;
+h4 {
+  margin: 8px 0 4px;
   font-size: 11px;
-  color: #778;
+  font-weight: normal;
+  color: var(--text-dim);
 }
 .prims {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
 }
 .prim {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 4px;
-  background: #fff;
-  border: 1px solid #dde;
+  padding: 3px 2px;
+  background: var(--panel-2);
+  border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10px;
+  white-space: nowrap;
 }
 .prim:hover {
-  border-color: #2f7de1;
+  border-color: var(--primary);
+  background: var(--button-hover);
 }
 .prim img {
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
 }
 .palette {
   display: grid;
@@ -122,26 +119,12 @@ h3 {
 }
 .swatch {
   aspect-ratio: 1;
-  border: 2px solid #fff;
+  border: 2px solid var(--panel);
   border-radius: 4px;
-  box-shadow: 0 0 0 1px #ccd;
+  box-shadow: 0 0 0 1px var(--border);
   cursor: pointer;
 }
 .swatch.active {
-  box-shadow: 0 0 0 2px #ff8a00;
-}
-.help dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 8px;
-  margin: 0;
-  font-size: 11px;
-}
-.help dt {
-  font-family: monospace;
-  color: #556;
-}
-.help dd {
-  margin: 0;
+  box-shadow: 0 0 0 2px var(--accent);
 }
 </style>

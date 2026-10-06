@@ -15,15 +15,17 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 ## どこを触るか
 | やりたいこと | ファイル |
 |---|---|
-| プリミティブ追加・形状変更 | `core/primitives.ts`（`PRIMITIVES` に1行追加。bbox は自動正規化） |
+| プリミティブ追加・形状変更 | `core/primitives.ts`（`PRIMITIVES` に1行追加。bbox 正規化・巻き方向・法線は自動。`primitives.test.ts` が全種を検証） |
 | 色の追加・変更 | `core/palette.ts`（インデックス＝保存される色ID。並べ替え禁止、追加は末尾） |
 | グリッド間隔・回転刻み | `core/constants.ts` |
 | 結合（CSG・面数削減） | `core/merge.ts` / テスト `core/merge.test.ts` |
 | 保存形式・GLB 出力 | `core/io.ts`、型は `core/types.ts` |
 | Undo/Redo | `core/history.ts`（スナップショット方式） |
-| マウス操作・選択・スナップ・編集コマンド | `core/Editor.ts` |
-| キーボードショートカット | `App.vue` の `onKey` と `SidePanel.vue` のヘルプ表 |
-| ツールバー / 右パネル / ビューポート HUD | `components/ToolBar.vue` / `SidePanel.vue` / `ViewportPane.vue` |
+| 操作ハンドル（拡縮・回転・持ち上げ・本体ドラッグの計算と描画） | `core/Gizmo.ts` |
+| マウス操作の振り分け・選択・スナップ・編集コマンド | `core/Editor.ts` |
+| キーボードショートカット | `App.vue` の `onKey` と `components/HelpDialog.vue` |
+| ツールバー / 右パネル / ビューポート HUD / ヘルプ | `components/ToolBar.vue` / `SidePanel.vue` / `ViewportPane.vue` / `HelpDialog.vue` |
+| UI 配色（ダークテーマ） | `style.css` の CSS 変数、シーン背景・グリッド色は `Editor.setupLightsAndGround` |
 | ファイル操作・自動保存（localStorage） | `store.ts` |
 
 ## データモデル
@@ -32,12 +34,18 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 - `Editor.toData()` ⇄ `restore()` がシーンとデータを相互変換し、保存・読み込み・Undo すべてがこれを通る。
 - `MeshData` は不変として扱う（色変更時も新オブジェクトを作る）→ 履歴間で参照共有できる。
 
-## 操作とスナップ（Editor）
-- マウス: 左=選択（Shift/Ctrl で追加）・ギズモ、中=パン、右=回転、ホイール=ズーム（OrbitControls の LEFT を無効化）。
-- 移動: バウンディングボックス最小点を 10cm 格子へスナップ（原点ではなく bbox 基準なので奇数サイズでも面が格子に揃う）。
-- 回転: TransformControls の 45° スナップ＋位置の bbox スナップ。
-- 拡縮: ローカル bbox サイズ×scale を 10cm 単位に丸める（最小 10cm）。単一選択のみ。
-- 複数選択は一時的な `pivot` に `attach` してまとめて移動・回転し、選択変更時に `objectRoot` へ戻す。
+## 操作とスナップ（Editor + Gizmo）
+- マウス: 左=選択・ハンドル・本体ドラッグ（Shift/Ctrl+クリックで追加選択）、中=パン、右=回転、ホイール=ズーム（OrbitControls の LEFT は無効）。
+- `Editor.onPointerDown` の優先順: ハンドル → オブジェクト（選択してそのまま本体ドラッグ）→ 空白（クリックで選択解除）。
+- Gizmo は Tinkercad 風の統合ハンドル。サイズは画面上で一定（`HANDLE_PX`）、`depthTest:false` で常に手前に描画。
+  - 本体ドラッグ: 掴んだ点の高さの水平面上を移動。
+  - 持ち上げ（天面上の矢印）: Y 移動。
+  - 拡縮（底面四隅・四辺中点・天面中央）: **反対側を固定**し、ローカル軸のサイズを 10cm 単位（最小 10cm）に丸める。Shift で全軸等倍（底面は固定）。回転済みオブジェクトもローカル軸で伸縮。単独選択時のみ。
+  - 回転（X 赤 / Y 緑 / Z 青の円弧）: ボックス中心まわりにワールド軸で 45° 刻み。ドラッグ中は分度器を表示。
+- 移動・回転の後は `snapBoxMin`: バウンディングボックス最小点を 10cm 格子へ（原点基準ではないので奇数サイズや回転後も面が格子に揃う）。拡縮は固定点を保つためこのスナップをしない。
+- 複数選択は一時的な `pivot` に `attach` してまとめて移動・回転し、選択変更時に `objectRoot` へ戻す。Gizmo の対象の親は identity である前提。
+- ドラッグ中の寸法・角度は `EditorState.dragInfo` で HUD に表示。
+- E2E 用に `Editor.debugHandleScreen()` がハンドルの画面座標を返す（`e2e/gizmo.spec.ts`）。
 
 ## 結合（merge.ts）
 1. three-bvh-csg で和集合（色は groups/マテリアルで保持）
