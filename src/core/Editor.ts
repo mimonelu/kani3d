@@ -394,7 +394,7 @@ export class Editor {
 
   // ------------------------------------------------------------ editing
 
-  /** プリミティブを追加。at 未指定なら選択物の上、無ければ注視点の床に置く */
+  /** プリミティブを追加。at 未指定なら選択物の上、無ければ画面中央に見えている床に置く */
   addPrimitive(primitive: string, at?: Vector3): string {
     const id = newId()
     const mesh = this.buildMesh({
@@ -413,7 +413,13 @@ export class Editor {
         const box = new Box3()
         for (const m of sel) box.expandByObject(m, true)
         base = new Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2)
-      } else base = new Vector3(this.orbit.target.x, 0, this.orbit.target.z)
+      } else {
+        // 画面中央の視線と床の交点（見えている中央に置く）。床が見えない向きなら注視点の真下
+        this.raycaster.setFromCamera(new Vector2(0, 0), this.camera)
+        base =
+          this.raycaster.ray.intersectPlane(this.groundPlane, new Vector3()) ??
+          new Vector3(this.orbit.target.x, 0, this.orbit.target.z)
+      }
     }
     const bb = mesh.geometry.boundingBox!
     mesh.position.set(base.x, base.y - bb.min.y, base.z)
@@ -649,7 +655,7 @@ export class Editor {
   }
 
   resetView(): void {
-    this.orbit.target.set(0, 0.05, 0)
+    this.orbit.target.set(0, 0, 0)
     this.camera.position.set(0.45, 0.42, 0.6)
     this.orbit.update()
   }

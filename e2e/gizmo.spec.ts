@@ -38,8 +38,8 @@ test('天面ハンドルで高さだけ伸び、底面は固定', async ({ page 
 
 test('角ハンドルは反対の角を固定して X/Z を伸縮', async ({ page }) => {
   const hs = await handles(page)
-  const h = hs['scale:1,-1,1']
-  const away = { x: h.x + (h.x - hs['scale:-1,-1,-1'].x) * 0.6, y: h.y + (h.y - hs['scale:-1,-1,-1'].y) * 0.6 }
+  const h = hs['scale:1,0,1']
+  const away = { x: h.x + (h.x - hs['scale:-1,0,-1'].x) * 0.6, y: h.y + (h.y - hs['scale:-1,0,-1'].y) * 0.6 }
   await drag(page, h, away)
   const b = await bounds(page)
   expect(b.min).toEqual([-0.05, 0, -0.05]) // 反対角は動かない
@@ -51,8 +51,8 @@ test('角ハンドルは反対の角を固定して X/Z を伸縮', async ({ pag
 
 test('Shift+角ハンドルで等倍拡大（接地を保つ）', async ({ page }) => {
   const hs = await handles(page)
-  const h = hs['scale:1,-1,1']
-  const away = { x: h.x + (h.x - hs['scale:-1,-1,-1'].x) * 0.6, y: h.y + (h.y - hs['scale:-1,-1,-1'].y) * 0.6 }
+  const h = hs['scale:1,0,1']
+  const away = { x: h.x + (h.x - hs['scale:-1,0,-1'].x) * 0.6, y: h.y + (h.y - hs['scale:-1,0,-1'].y) * 0.6 }
   await drag(page, h, away, true)
   const b = await bounds(page)
   const size = b.max.map((v, i) => v - b.min[i])
@@ -64,9 +64,8 @@ test('Shift+角ハンドルで等倍拡大（接地を保つ）', async ({ page 
 test('本体ドラッグで床と平行に移動しスナップ', async ({ page }) => {
   const box = (await page.locator('canvas').boundingBox())!
   const hs = await handles(page)
-  // 天面中央と底面中央の中点 = 本体の中心
-  const bottom = { x: (hs['scale:1,-1,1'].x + hs['scale:-1,-1,-1'].x) / 2, y: (hs['scale:1,-1,1'].y + hs['scale:-1,-1,-1'].y) / 2 }
-  const c = { x: (hs['scale:0,1,0'].x + bottom.x) / 2, y: (hs['scale:0,1,0'].y + bottom.y) / 2 }
+  // 対角の 2 ハンドル（縦の中央の高さ）の中点 = 本体の中心
+  const c = { x: (hs['scale:1,0,1'].x + hs['scale:-1,0,-1'].x) / 2, y: (hs['scale:1,0,1'].y + hs['scale:-1,0,-1'].y) / 2 }
   await drag(page, c, { x: c.x + box.width * 0.15, y: c.y })
   const b = await bounds(page)
   expect(b.min[0]).toBeGreaterThan(0)

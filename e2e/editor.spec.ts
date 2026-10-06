@@ -242,3 +242,19 @@ test('旧形式のプリミティブ ID は読み込み時に変換される', a
   expect(data[0]).toMatchObject({ primitive: 'prism', params: { sides: 6 } })
   expect(data[1]).toMatchObject({ primitive: 'cube', scale: [1, 2, 1] })
 })
+
+test('未選択で追加すると画面中央に見えている床に置かれる', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.orbit.target.set(0.3, 0.4, -0.2) // 注視点を床から浮かせる
+    k.orbit.update()
+    k.addPrimitive('cube')
+  })
+  const p = await page.evaluate(() => {
+    const k = (window as any).__kani
+    const m = k.scene.getObjectByName('立方体')
+    return m.position.clone().setY(0).project(k.camera).toArray()
+  })
+  expect(Math.abs(p[0])).toBeLessThan(0.1) // 画面中央付近（NDC）
+  expect(Math.abs(p[1])).toBeLessThan(0.1)
+})
