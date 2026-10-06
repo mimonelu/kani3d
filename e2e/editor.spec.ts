@@ -253,6 +253,7 @@ test('未選択で追加すると画面中央に見えている床に置かれ�
   const p = await page.evaluate(() => {
     const k = (window as any).__kani
     const m = k.scene.getObjectByName('立方体')
+    k.camera.updateMatrixWorld()
     return m.position.clone().setY(0).project(k.camera).toArray()
   })
   expect(Math.abs(p[0])).toBeLessThan(0.1) // 画面中央付近（NDC）
@@ -287,7 +288,38 @@ test('ペイント: 分割した立方体のマス 1 つだけを塗り、最適
   expect(groups.sort()).toEqual([0, 4])
   await expect(page.locator('.hud')).toContainText('検査: 問題なし')
 
-  // 結合解除で塗った立方体に戻る
-  await page.getByRole('button', { name: '結合解除' }).click()
+  await expect(page.locator('.banner.info')).toContainText('面数を最適化しました')
+  // 最適化は通常の編集: 結合解除の対象ではなく、元に戻すで塗った立方体に戻る
+  await expect(page.getByRole('button', { name: '結合', exact: true })).toBeDisabled()
+  await page.keyboard.press('Control+z')
   expect((await page.evaluate(() => (window as any).__kani.toData()[0])).faceColors).toBeTruthy()
+})
+
+test('最適化: 位置・回転・拡縮を保つ（結合物は結合元を保つ）', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.addPrimitive('cube')
+    k.setPrimitiveParams({ segX: 4, segY: 4, segZ: 4 })
+    k.rotateSelected('y')
+    k.nudge(4, 1, 0)
+    const before = k.selectionBounds()
+    const tris0 = k.currentState().triangles
+    const res = k.optimizeSelected()
+    const after = k.selectionBounds()
+    // 結合物（結合時に最適化済み）は変化せず、結合解除もできるまま
+    k.setSelection([])
+    k.addPrimitive('cube')
+    k.selectAll()
+    k.mergeSelected()
+    k.optimizeSelected()
+    return { before, after, res, tris0, canUnmerge: k.currentState().canUnmerge }
+  })
+  expect(r.res.optimized).toBe(1)
+  expect(r.res.after).toBe(12)
+  expect(r.tris0).toBe(6 * 16 * 2)
+  for (let i = 0; i < 3; i++) {
+    expect(r.after.min[i]).toBeCloseTo(r.before.min[i], 4)
+    expect(r.after.max[i]).toBeCloseTo(r.before.max[i], 4)
+  }
+  expect(r.canUnmerge).toBe(true)
 })

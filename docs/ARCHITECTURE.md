@@ -18,7 +18,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | プリミティブ追加・形状オプション | `core/primitives.ts`（`PRIMITIVES` に定義を追加。`params` に ParamDef を書けば UI〈`components/ShapeOptions.vue`〉は自動生成。bbox 正規化・巻き方向・法線は自動。`primitives.test.ts` が全パラメータの端値で閉じた形状かを検証） |
 | 既存オブジェクトの形状変更 | `Editor.setPrimitiveParams`（底面の高さを保って作り直す。スライダー操作中は commit=false でプレビュー） |
 | ポリゴン単位のペイント | `core/paint.ts`（三角形ごとの色 → index を色順に並べ替えて groups 化）、`Editor.setPaintMode / paintHit`。ポリゴン番号はプリミティブ生成時に `geometry.userData.polyIds`（`PrimitiveDef.polygons`: 同一平面でつながった三角形 or 立方体のマス目）、結合物は `meshPolygons`（同一平面でつながった三角形） |
-| 単体の面数最適化 | `Editor.optimizeSelected`（1 オブジェクトで `mergeObjects` を通す。元は `sources` に残り結合解除で戻る） |
+| 単体の面数最適化 | `Editor.optimizeSelected`（オブジェクトのローカル座標で 1 入力の `mergeObjects` を通す。位置・回転・拡縮は保持。通常の編集なので戻すのは Undo。結合物の `sources` は原点のずれ分を補正して引き継ぐ） |
 | 旧形式のプリミティブ ID の変換 | `primitives.ts` の `LEGACY_PRIMITIVES`（`io.parseDoc` が適用） |
 | 色の追加・変更 | `core/palette.ts`（インデックス＝保存される色ID。並べ替え禁止、追加は末尾） |
 | 表示グリッド(10cm)・スナップ単位(5cm)・回転刻み・初期サイズ(10cm) | `core/constants.ts`（`GRID` は表示のみ、スナップは `SNAP`） |
@@ -67,7 +67,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 3. 共線頂点を除去（隣接領域も同時に除去できる頂点のみ＝T 字の隙間を作らない）して earcut で再三角形化
 4. 面積チェック等に失敗した領域は元の三角形のまま。さらに出力の辺の健全性が入力より悪化したら、関わる領域を元に戻して繰り返す。結果は bbox 中心を原点にした `MeshData`
 5. 面数削減では面積ほぼゼロでも頂点が異なる三角形を捨てない（形状を閉じる役割があるため）。
-6. 検査（`checkMesh`）: 位置で溶接した辺ごとに「逆向きの 2 面で共有」以外を問題とする。結合直後に問題があればシーンビュー上部に警告（`ui.alert`、自動では消えない）、結果は MeshData 参照でキャッシュ（保存しない）。`e2e/merge-roundtrip.spec.ts` が「結合→移動・回転→解除→再結合」で悪化しないことを検証。
+6. 検査（`checkMesh`）: 位置で溶接した辺ごとに「逆向きの 2 面で共有」以外を問題とする。結合直後に問題があればシーンビュー上部に警告（`ui.banner`。最適化結果も同じ枠で info 表示。自動では消えない）、結果は MeshData 参照でキャッシュ（保存しない）。`e2e/merge-roundtrip.spec.ts` が「結合→移動・回転→解除→再結合」で悪化しないことを検証。
    `merge.test.ts` が全プリミティブ × 4 形状 × 4 配置で穴・裏返りゼロを検証（辺だけで接する配置は幾何学的に非多様体になり得るので内部面は少数許容）
 
 ## 注意点（ハマりどころ）

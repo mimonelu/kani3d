@@ -433,6 +433,7 @@ export class Editor {
         base = new Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2)
       } else {
         // 画面中央の視線と床の交点（見えている中央に置く）。床が見えない向きなら注視点の真下
+        this.camera.updateMatrixWorld() // 視点変更直後で未描画でも最新の向きで
         this.raycaster.setFromCamera(new Vector2(0, 0), this.camera)
         base =
           this.raycaster.ray.intersectPlane(this.groundPlane, new Vector3()) ??
@@ -641,16 +642,18 @@ export class Editor {
     this.commit()
   }
 
-  /** 選択物それぞれの面数を最適化（同色・同一平面の面をまとめる）。元の形は「結合解除」で戻せる */
+  /**
+   * 選択物それぞれの面数を最適化（同色・同一平面の面をまとめる）。通常の編集として扱い、戻すときは Undo。
+   * オブジェクト自身の座標系で処理するので位置・回転・拡縮はそのまま。結合物の結合元（sources）は引き継ぐ
+   */
   optimizeSelected(): { optimized: number; before: number; after: number } {
     this.releasePivot()
     const result = { optimized: 0, before: 0, after: 0 }
     const ids: string[] = []
     for (const id of this.selection) {
       const m = this.meshById(id)!
-      m.updateMatrixWorld(true)
       const before = triangleCount(m.geometry)
-      const { mesh, center } = mergeObjects([{ geometry: m.geometry, matrixWorld: m.matrixWorld }])
+      const { mesh, center } = mergeObjects([{ geometry: m.geometry, matrixWorld: new Matrix4() }])
       const after = mesh.indices.length / 3
       result.before += before
       if (after >= before) {
@@ -658,14 +661,23 @@ export class Editor {
         ids.push(id)
         continue
       }
-      const src = this.meshToData(m)
-      src.position = [src.position[0] - center.x, src.position[1] - center.y, src.position[2] - center.z].map(clean) as Vec3
+      const ud = m.userData as ObjUserData
+      // ローカル原点が center だけずれるので、結合元もその分ずらす
+      const sources =
+        ud.kind === 'mesh' && ud.sources
+          ? ud.sources.map((s) => ({
+              ...s,
+              position: [s.position[0] - center.x, s.position[1] - center.y, s.position[2] - center.z].map(clean) as Vec3,
+            }))
+          : undefined
+      m.updateMatrixWorld(true)
+      const d = this.meshToData(m)
+      const position = toTransform(m.localToWorld(center.clone()), m.quaternion, m.scale).position
       disposeMesh(m)
-      const nid = newId()
       this.objectRoot.add(
-        this.buildMesh({ id: nid, kind: 'mesh', mesh, sources: [src], position: center.toArray() as Vec3, quaternion: [0, 0, 0, 1], scale: [1, 1, 1] }),
+        this.buildMesh({ id: d.id, kind: 'mesh', mesh, ...(sources && { sources }), position, quaternion: d.quaternion, scale: d.scale }),
       )
-      ids.push(nid)
+      ids.push(d.id)
       result.optimized++
       result.after += after
     }

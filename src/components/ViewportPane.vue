@@ -36,9 +36,9 @@ function onDrop(e: DragEvent) {
 <template>
   <div class="viewport" ref="host" @dragover.prevent @drop.prevent="onDrop">
     <div class="top">
-      <div v-if="ui.alert" class="alert" role="alert">
-        <span>{{ ui.alert }}</span>
-        <button class="close" aria-label="閉じる" @click="ui.alert = ''">×</button>
+      <div v-if="ui.banner" class="banner" :class="ui.banner.kind" :role="ui.banner.kind === 'warn' ? 'alert' : 'status'">
+        <span>{{ ui.banner.text }}</span>
+        <button class="close" aria-label="閉じる" @click="ui.banner = null">×</button>
       </div>
       <div class="hud">
       <span>オブジェクト {{ state.objectCount }}</span>
@@ -88,21 +88,26 @@ function onDrop(e: DragEvent) {
   gap: 12px;
   color: var(--text-dim);
 }
-.alert {
+.banner {
   display: flex;
   align-items: center;
   gap: 10px;
   max-width: 100%;
   padding: 6px 8px 6px 12px;
   border-radius: 6px;
-  background: rgba(120, 40, 30, 0.92);
-  border: 1px solid #ff5f57;
-  color: #ffe2df;
+  background: rgba(30, 60, 110, 0.92);
+  border: 1px solid #3d8bff;
+  color: #e2ecff;
   font-size: 12px;
   pointer-events: auto;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
-.alert .close {
+.banner.warn {
+  background: rgba(120, 40, 30, 0.92);
+  border-color: #ff5f57;
+  color: #ffe2df;
+}
+.banner .close {
   background: none;
   border: none;
   color: inherit;

@@ -94,7 +94,7 @@ describe('mergeObjects', () => {
     expect(report).toEqual([])
     // 辺だけで接する配置（パイプの内壁など）は幾何学的に非多様体になり得る。ごく少数のみ許容
     expect(nonManifold).toBeLessThanOrEqual(4)
-  })
+  }, 60_000) // 網羅的で重いので（通常 1〜2 秒）
 
   it('checkMesh は穴を検出する', () => {
     const { mesh } = mergeObjects([prim('cube', 0, [0, 0.05, 0]), prim('cube', 0, [0.1, 0.05, 0])])

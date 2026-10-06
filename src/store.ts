@@ -28,8 +28,8 @@ export const state = reactive<EditorState>({
 export const ui = reactive({
   fileName: 'untitled',
   message: '',
-  /** シーンビュー上部に出す警告（自動では消えない。× か次の結合で更新） */
-  alert: '',
+  /** シーンビュー上部のフロート表示（自動では消えない。× か次の結合・最適化で更新） */
+  banner: null as { kind: 'info' | 'warn'; text: string } | null,
   helpOpen: false,
   openRequest: 0,
 })
@@ -112,7 +112,7 @@ export function notify(message: string, ms = 2500): void {
 
 export function newScene(): void {
   editorRef.value?.newScene()
-  ui.alert = ''
+  ui.banner = null
   ui.fileName = 'untitled'
 }
 
@@ -129,7 +129,7 @@ export async function openSceneFile(file: File): Promise<void> {
   try {
     editorRef.value?.loadDoc(parseDoc(await file.text()))
     ui.fileName = file.name.replace(/\.(kani|json)$/i, '')
-    ui.alert = ''
+    ui.banner = null
     notify(`${file.name} を読み込みました`)
   } catch (e) {
     notify(`読み込み失敗: ${(e as Error).message}`)
@@ -162,7 +162,12 @@ export function optimizeSelection(): void {
   try {
     const r = editorRef.value?.optimizeSelected()
     if (!r) return
-    notify(r.optimized ? `面数を最適化しました（${r.before} → ${r.after} 三角形）` : 'これ以上は削減できません')
+    ui.banner = {
+      kind: 'info',
+      text: r.optimized
+        ? `面数を最適化しました（${r.before} → ${r.after} 三角形）。元に戻すには「元に戻す」（Ctrl+Z）`
+        : 'これ以上は削減できません',
+    }
   } catch (e) {
     notify(`最適化失敗: ${(e as Error).message}`)
   }
@@ -173,10 +178,13 @@ export function mergeSelection(): void {
     const r = editorRef.value?.mergeSelected()
     if (!r) return notify('2つ以上選択してください')
     const { open, nonManifold, flipped } = r.issues
-    ui.alert =
+    ui.banner =
       open + nonManifold + flipped
-        ? `結合結果に問題があります（穴 ${open} / 内部面 ${nonManifold} / 裏返り ${flipped}）。X線表示で確認できます。辺だけで接する配置では内部面が出ることがあります`
-        : ''
+        ? {
+            kind: 'warn',
+            text: `結合結果に問題があります（穴 ${open} / 内部面 ${nonManifold} / 裏返り ${flipped}）。X線表示で確認できます。辺だけで接する配置では内部面が出ることがあります`,
+          }
+        : null
   } catch (e) {
     notify(`結合失敗: ${(e as Error).message}`)
   }
