@@ -159,7 +159,7 @@ export const PRIMITIVES: readonly PrimitiveDef[] = [
     id: 'prism',
     label: '柱',
     category: '柱・錐',
-    params: [sides(16), half('半分（D 字断面）')],
+    params: [sides(16), half('半分')],
     size: (p) => [S, S, p.half ? H : S],
     smooth: (p) => num(p, 'sides') >= SMOOTH_SIDES,
     create: prismGeometry,

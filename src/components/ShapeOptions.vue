@@ -18,7 +18,7 @@ const onRange = (d: ParamDef, e: Event, commit: boolean) => set(d, Number((e.tar
 </script>
 
 <template>
-  <section class="shape-options">
+  <section v-if="state.selection.length" class="shape-options">
     <h3>形状オプション</h3>
     <p v-if="!target" class="empty">プリミティブを 1 つ選択すると、角数や分割数などを変更できます。</p>
     <p v-else-if="!target.def.params.length" class="empty">{{ target.def.label }}にはオプションがありません。</p>

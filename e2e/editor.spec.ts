@@ -221,9 +221,9 @@ test('形状オプション: 柱の角数・半分を変更でき、Undo でき�
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   expect((await sceneData(page))[0]).not.toHaveProperty('params')
-  // 複数選択・結合物では「選択すると…」の案内
+  // 未選択ならセクション自体を隠す
   await page.keyboard.press('Escape')
-  await expect(page.locator('.shape-options .empty')).toBeVisible()
+  await expect(page.locator('.shape-options')).toHaveCount(0)
 })
 
 test('旧形式のプリミティブ ID は読み込み時に変換される', async ({ page }) => {
