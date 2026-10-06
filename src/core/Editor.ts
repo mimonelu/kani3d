@@ -968,19 +968,48 @@ export class Editor {
     return { position: toVec3(this.camera.position), target: toVec3(this.orbit.target) }
   }
 
-  /** プリセット方向から全オブジェクトが収まるカメラ（aspect = 出力画像の幅 / 高さ） */
-  presetCamera(preset: CameraPreset, aspect: number): RenderCamera {
+  /**
+   * プリセット方向から全オブジェクトがちょうど収まるカメラ。
+   * 全頂点を投影し、上下左右の余白が padding（px）以上になる最も近い位置を解析的に求める（余白 0 なら画像の端ぴったり）
+   */
+  presetCamera(preset: CameraPreset, width: number, height: number, padding = 0): RenderCamera {
     if (preset === 'view') return this.viewCamera()
-    const box = new Box3()
-    for (const m of this.meshes) box.expandByObject(m, true)
-    const sphere = box.isEmpty() ? new Sphere(new Vector3(), 0.1) : box.getBoundingSphere(new Sphere())
-    const r = Math.max(sphere.radius, 0.05)
-    const vFov = (this.camera.fov * Math.PI) / 180
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect)
-    const dist = (r / Math.sin(Math.min(vFov, hFov) / 2)) * 1.05
-    const dir = new Vector3(...CAMERA_PRESETS[preset].dir).normalize()
-    const position = sphere.center.clone().addScaledVector(dir, dist)
-    return { position: toVec3(position), target: toVec3(sphere.center), up: CAMERA_PRESETS[preset].up }
+    const p = CAMERA_PRESETS[preset]
+    const f = new Vector3(...p.dir).normalize().negate() // 視線方向
+    const upHint = new Vector3(...(p.up ?? [0, 1, 0]))
+    const r = new Vector3().crossVectors(f, upHint).normalize()
+    const u = new Vector3().crossVectors(r, f)
+    const pts: Vector3[] = []
+    for (const m of this.meshes) {
+      m.updateMatrixWorld(true)
+      const pos = m.geometry.getAttribute('position')
+      for (let i = 0; i < pos.count; i++) pts.push(new Vector3().fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld))
+    }
+    if (!pts.length) pts.push(new Vector3(-0.05, 0, -0.05), new Vector3(0.05, 0.1, 0.05))
+    // 余白を除いた範囲の画角（tan）
+    const tanV0 = Math.tan((this.camera.fov * Math.PI) / 360)
+    const tanH = tanV0 * (width / height) * Math.max(0.01, 1 - (2 * padding) / width)
+    const tanV = tanV0 * Math.max(0.01, 1 - (2 * padding) / height)
+    // カメラ C の各軸成分 a=C·r, c=C·u, b=C·f について、点 q が収まる条件は
+    //   |q·r - a| <= tanH (q·f - b),  |q·u - c| <= tanV (q·f - b)  → 端の点で決まる
+    let s1 = -Infinity, s2 = Infinity, t1 = -Infinity, t2 = Infinity, near = Infinity
+    for (const q of pts) {
+      const x = q.dot(r), y = q.dot(u), z = q.dot(f)
+      s1 = Math.max(s1, x - tanH * z)
+      s2 = Math.min(s2, x + tanH * z)
+      t1 = Math.max(t1, y - tanV * z)
+      t2 = Math.min(t2, y + tanV * z)
+      near = Math.min(near, z)
+    }
+    // b を小さく（後ろへ）するほど写る範囲が広がる。両方向を満たす最大の b
+    const b = Math.min((s2 - s1) / (2 * tanH), (t2 - t1) / (2 * tanV), near - 0.02)
+    const a = (s1 + s2) / 2
+    const c = (t1 + t2) / 2
+    const C = r.clone().multiplyScalar(a).addScaledVector(u, c).addScaledVector(f, b)
+    // 注視点は視線上、オブジェクト群の中心の奥行きに置く
+    const center = pts.reduce((acc, q) => acc.add(q), new Vector3()).divideScalar(pts.length)
+    const target = C.clone().addScaledVector(f, Math.max(0.05, center.clone().sub(C).dot(f)))
+    return { position: toVec3(C), target: toVec3(target), up: p.up }
   }
 
   /**

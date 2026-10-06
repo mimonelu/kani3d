@@ -5,7 +5,10 @@ import type { Vec3 } from '../core/types'
 import { downloadBlob } from '../core/io'
 import { editorRef, notify, ui } from '../store'
 
-/** 画像出力（PNG）ダイアログ。設定を変えるとプレビューを描き直す */
+/**
+ * 画像出力ダイアログ（PNG）。設定を変えるとプレビューを描き直す。
+ * 入力内容はアプリ起動中は保持（コンポーネントは常駐し、開くたびにリセットしない）
+ */
 const SIZE_PRESETS = [
   { id: 'view', label: 'シーンビューと同じ' },
   { id: '1280x720', label: '1280 × 720' },
@@ -25,6 +28,8 @@ const form = reactive({
   opacity: 100,
   grid: false,
   cameraPreset: 'view' as CameraPreset | 'custom',
+  /** 全体を収めるときの上下左右の余白（px） */
+  padding: 32,
   position: [0, 0, 0] as Vec3,
   target: [0, 0, 0] as Vec3,
   up: undefined as Vec3 | undefined,
@@ -52,7 +57,7 @@ function applySizePreset() {
 function applyCameraPreset() {
   const ed = editorRef.value
   if (!ed || form.cameraPreset === 'custom') return
-  const c = ed.presetCamera(form.cameraPreset, form.width / form.height)
+  const c = ed.presetCamera(form.cameraPreset, form.width, form.height, form.padding)
   form.position = c.position
   form.target = c.target
   form.up = c.up
@@ -65,14 +70,14 @@ function setPos(kind: 'position' | 'target', i: number, e: Event) {
   form.cameraPreset = 'custom'
 }
 
-// 開いたときにシーンビューの状態で初期化
+// 開いたとき: 入力内容は保持し、「シーンビューと同じ」「全体を収める」系だけ現在の状態で取り直す
+let initialized = false
 watch(
   () => ui.renderOpen,
   (open) => {
     if (!open) return
-    form.fileName = ui.fileName
-    form.sizePreset = 'view'
-    form.cameraPreset = 'view'
+    if (!initialized) form.fileName = ui.fileName
+    initialized = true
     applySizePreset()
     applyCameraPreset()
   },
@@ -81,7 +86,7 @@ watch(() => form.sizePreset, applySizePreset)
 watch(() => form.cameraPreset, applyCameraPreset)
 // サイズが変わると縦横比が変わるので、全体を収めるプリセットは取り直す
 watch(
-  () => [form.width, form.height],
+  () => [form.width, form.height, form.padding],
   () => form.cameraPreset !== 'view' && form.cameraPreset !== 'custom' && applyCameraPreset(),
 )
 
@@ -129,7 +134,7 @@ const axes = ['X', 'Y', 'Z']
   <div v-if="ui.renderOpen" class="backdrop" @click.self="ui.renderOpen = false">
     <div class="dialog" role="dialog" aria-label="画像出力">
       <header>
-        <strong>画像出力（PNG）</strong>
+        <strong>画像出力</strong>
         <button class="close" aria-label="閉じる" @click="ui.renderOpen = false">×</button>
       </header>
       <div class="body">
@@ -174,6 +179,20 @@ const axes = ['X', 'Y', 'Z']
               <option v-for="c in cameraOptions" :key="c.id" :value="c.id">{{ c.label }}</option>
             </select>
           </label>
+          <label class="row">
+            <span>余白</span>
+            <span class="inline">
+              <input
+                type="number"
+                min="0"
+                max="1000"
+                v-model.number="form.padding"
+                data-field="padding"
+                :disabled="form.cameraPreset === 'view' || form.cameraPreset === 'custom'"
+              />
+              <span class="dim">px（全体を収めるカメラのとき。0 で画像の端ぴったり）</span>
+            </span>
+          </label>
           <div v-for="kind in ['position', 'target'] as const" :key="kind" class="row">
             <span>{{ kind === 'position' ? '位置 (m)' : '注視点 (m)' }}</span>
             <span class="inline">
@@ -183,12 +202,12 @@ const axes = ['X', 'Y', 'Z']
               </template>
             </span>
           </div>
+          <footer>
+            <button @click="ui.renderOpen = false">キャンセル</button>
+            <button class="primary" :disabled="saving" @click="save">PNG を保存</button>
+          </footer>
         </div>
       </div>
-      <footer>
-        <button @click="ui.renderOpen = false">キャンセル</button>
-        <button class="primary" :disabled="saving" @click="save">PNG を保存</button>
-      </footer>
     </div>
   </div>
 </template>
@@ -224,7 +243,8 @@ footer {
 footer {
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: auto;
+  padding-top: 12px;
 }
 .close {
   background: none;
@@ -262,6 +282,7 @@ footer {
 }
 .fields {
   display: flex;
+  min-height: 100%;
   flex-direction: column;
   gap: 8px;
 }

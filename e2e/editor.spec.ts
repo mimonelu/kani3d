@@ -404,3 +404,60 @@ test('画像出力: 背景透過の PNG を指定サイズで保存できる', a
   expect(alpha).toEqual([0, 255])
   await expect(page.locator('.dialog[aria-label="画像出力"]')).toHaveCount(0)
 })
+
+test('画像出力: 余白どおりに全体を収め、入力内容は閉じても保持される', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.addPrimitive('cube')
+    k.setSelection([])
+    k.addPrimitive('sphere')
+    k.nudge(3, 0, 1)
+  })
+  /** 透明背景で描いた画像の不透明ピクセルの外接矩形 [left, top, right, bottom] の余白 */
+  const margins = (padding: number, preset: string) =>
+    page.evaluate(
+      ({ padding, preset }) => {
+        const k = (window as any).__kani
+        const W = 400, H = 300
+        const camera = k.presetCamera(preset, W, H, padding)
+        const c: HTMLCanvasElement = k.renderImage({ width: W, height: H, background: '#000000', opacity: 0, grid: false, camera })
+        const ctx = new OffscreenCanvas(W, H).getContext('2d')!
+        ctx.drawImage(c, 0, 0)
+        const d = ctx.getImageData(0, 0, W, H).data
+        let l = W, t = H, r = -1, b = -1
+        for (let y = 0; y < H; y++)
+          for (let x = 0; x < W; x++)
+            if (d[(y * W + x) * 4 + 3] > 0) {
+              l = Math.min(l, x)
+              r = Math.max(r, x)
+              t = Math.min(t, y)
+              b = Math.max(b, y)
+            }
+        return [l, t, W - 1 - r, H - 1 - b]
+      },
+      { padding, preset },
+    )
+  for (const preset of ['front', 'iso', 'top']) {
+    const m0 = await margins(0, preset)
+    // どちらかの軸で両端ぴったり（±1px）、もう一方の軸は左右・上下が均等
+    const tightX = m0[0] <= 1 && m0[2] <= 1
+    const tightY = m0[1] <= 1 && m0[3] <= 1
+    expect(tightX || tightY, `${preset}: ${m0}`).toBe(true)
+    const m20 = await margins(20, preset)
+    expect(Math.min(...m20), `${preset}: ${m20}`).toBeGreaterThanOrEqual(19)
+    expect(tightX ? Math.min(m20[0], m20[2]) : Math.min(m20[1], m20[3])).toBeLessThanOrEqual(21)
+  }
+
+  // 入力内容の保持
+  await page.getByRole('button', { name: '画像出力' }).click()
+  await page.locator('[data-field="fileName"]').fill('keep-me')
+  await page.locator('[data-field="opacity"]').fill('40')
+  await page.locator('[data-field="cameraPreset"]').selectOption('iso')
+  await page.locator('[data-field="padding"]').fill('10')
+  await page.getByRole('button', { name: 'キャンセル' }).click()
+  await page.getByRole('button', { name: '画像出力' }).click()
+  await expect(page.locator('[data-field="fileName"]')).toHaveValue('keep-me')
+  await expect(page.locator('[data-field="opacity"]')).toHaveValue('40')
+  await expect(page.locator('[data-field="cameraPreset"]')).toHaveValue('iso')
+  await expect(page.locator('[data-field="padding"]')).toHaveValue('10')
+})
