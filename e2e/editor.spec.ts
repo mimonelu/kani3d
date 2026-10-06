@@ -343,3 +343,38 @@ test('最適化のメッセージは左下に出て時間経過で消える（�
   expect(vp.y + vp.height - (b.y + b.height)).toBeLessThan(30)
   await expect(banner).toBeHidden({ timeout: 8000 })
 })
+
+test('ペイント中に E キーでカーソル下のポリゴンの色を消す（Undo 可）', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.addPrimitive('cube')
+    k.setPrimitiveParams({ segX: 4, segY: 4, segZ: 4 })
+  })
+  await page.getByRole('button', { name: 'ペイント' }).click()
+  await page.locator('[data-color="0"]').click()
+  const canvas = page.locator('canvas')
+  const box = (await canvas.boundingBox())!
+  const c = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  // 押したまま横に動かして数マス塗る
+  await page.mouse.move(c.x - 20, c.y)
+  await page.mouse.down()
+  for (let i = 1; i <= 8; i++) await page.mouse.move(c.x - 20 + i * 5, c.y)
+  await page.mouse.up()
+  const painted = () => page.evaluate(() => Object.keys((window as any).__kani.toData()[0].faceColors ?? {}).length)
+  const n = await painted()
+  expect(n).toBeGreaterThan(1)
+
+  // カーソル下を E で消す → 1 マス減る
+  await page.keyboard.down('e')
+  await page.keyboard.up('e')
+  expect(await painted()).toBe(n - 1)
+  // E を押したまま動かすと通過したマスも消える
+  await page.mouse.move(c.x - 20, c.y)
+  await page.keyboard.down('e')
+  for (let i = 1; i <= 8; i++) await page.mouse.move(c.x - 20 + i * 5, c.y)
+  await page.keyboard.up('e')
+  expect(await painted()).toBe(0)
+  // 消去は E を離すまでで 1 回分
+  await page.keyboard.press('Control+z')
+  expect(await painted()).toBe(n - 1)
+})

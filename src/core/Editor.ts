@@ -579,6 +579,7 @@ export class Editor {
   setPaintMode(on: boolean): void {
     if (this.paintMode === on) return
     this.cancelDrag()
+    this.setErasing(false)
     this.paintMode = on
     this.setPaintHover(null)
     this.attachTransform()
@@ -587,11 +588,11 @@ export class Editor {
   }
 
   /** レイが当たったポリゴンを塗る。変化があれば true */
-  private paintHit(hit: { object: Object3D; faceIndex?: number | null }): boolean {
+  private paintHit(hit: { object: Object3D; faceIndex?: number | null }, erase = false): boolean {
     const m = hit.object as Mesh
     const ud = m.userData as ObjUserData
     if (hit.faceIndex == null) return false
-    const color = this.currentColor
+    const color = erase ? baseColorOf(ud) : this.currentColor
     if (ud.kind === 'primitive') {
       const poly = polyIdsOf(m.geometry)[hit.faceIndex]
       const current = ud.faceColors?.[poly] ?? ud.color
@@ -609,6 +610,43 @@ export class Editor {
     }
     this.setPaintHover(null)
     return true
+  }
+
+  // E キーを押している間の消去（カーソル下のポリゴンを基本色に戻す）
+  private erasing = false
+  private eraseChanged = false
+  private lastNdc: Vector2 | null = null
+
+  /** ペイント中に E キーで消去を開始・終了する。離した時点までを 1 回分として履歴へ */
+  setErasing(on: boolean): void {
+    if (!this.paintMode || this.erasing === on) return
+    this.erasing = on
+    if (on) {
+      this.eraseChanged = false
+      this.eraseAtPointer()
+    } else if (this.eraseChanged) {
+      this.commit()
+      this.eraseChanged = false
+    }
+    this.refreshPaintHover()
+  }
+
+  private eraseAtPointer(): void {
+    if (!this.lastNdc) return
+    this.camera.updateMatrixWorld()
+    this.raycaster.setFromCamera(this.lastNdc, this.camera)
+    const hit = this.raycaster.intersectObjects(this.meshes, false)[0]
+    if (hit && this.paintHit(hit, true)) this.eraseChanged = true
+    this.refreshPaintHover()
+  }
+
+  /** 強調表示を作り直す（消去中かどうかで色が変わるため） */
+  private refreshPaintHover(): void {
+    this.setPaintHover(null)
+    if (!this.lastNdc || !this.paintMode) return
+    this.raycaster.setFromCamera(this.lastNdc, this.camera)
+    const hit = this.raycaster.intersectObjects(this.meshes, false)[0]
+    if (hit && hit.faceIndex != null) this.setPaintHover({ mesh: hit.object as Mesh, faceIndex: hit.faceIndex })
   }
 
   /** ペイント対象のポリゴンを半透明で強調 */
@@ -637,7 +675,8 @@ export class Editor {
       }
     })
     const hg = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array(pts), 3))
-    const color = paletteMaterials()[this.currentColor].color
+    // 消去中は戻る先の基本色で表示する
+    const color = paletteMaterials()[this.erasing ? baseColorOf(ud) : this.currentColor].color
     const hover = new Mesh(
       hg,
       new MeshBasicMaterial({ color, transparent: true, opacity: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
@@ -1003,8 +1042,11 @@ export class Editor {
   private onPointerMove = (e: PointerEvent): void => {
     this.setRay(e)
     if (this.paintMode) {
+      this.lastNdc = this.ndc(e.clientX, e.clientY)
       const hit = this.raycaster.intersectObjects(this.meshes, false)[0]
-      if (this.pointer?.painting) {
+      if (this.erasing) {
+        if (hit && this.paintHit(hit, true)) this.eraseChanged = true
+      } else if (this.pointer?.painting) {
         if (hit && this.paintHit(hit)) this.paintChanged = true
       }
       this.setPaintHover(hit && hit.faceIndex != null ? { mesh: hit.object as Mesh, faceIndex: hit.faceIndex } : null)
@@ -1197,4 +1239,21 @@ function primitiveGeometry(ud: { primitive: string; params: PrimitiveParams; col
   if (!ud.faceColors) return setSingleColor(g, ud.color)
   applyTriangleColors(g, primitiveTriColors(polyIdsOf(g), ud.color, ud.faceColors))
   return g
+}
+
+/** 消去で戻す色: プリミティブは基本色、結合物は面積が最も大きい色 */
+function baseColorOf(ud: ObjUserData): number {
+  if (ud.kind === 'primitive') return ud.color
+  const m = ud.mesh
+  const area = new Map<number, number>()
+  const v = (i: number) => new Vector3(m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2])
+  for (const g of m.groups) {
+    let a = area.get(g.color) ?? 0
+    for (let k = g.start; k < g.start + g.count; k += 3) {
+      const p = v(m.indices[k])
+      a += v(m.indices[k + 1]).sub(p).cross(v(m.indices[k + 2]).sub(p)).length()
+    }
+    area.set(g.color, a)
+  }
+  return [...area].reduce((best, cur) => (cur[1] > best[1] ? cur : best), [DEFAULT_COLOR, -1])[0]
 }

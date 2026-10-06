@@ -61,14 +61,29 @@ function onKey(e: KeyboardEvent) {
       case 'z': return ed.rotateSelected(k, e.shiftKey ? -1 : 1), true
       case 'f': return e.shiftKey ? ed.frameAll() : ed.focusSelection(), true
       case 'p': return ed.setPaintMode(!state.paintMode), true
+      case 'e': return state.paintMode ? (ed.setErasing(true), true) : false
     }
     return false
   })()
   if (handled) e.preventDefault()
 }
 
-onMounted(() => window.addEventListener('keydown', onKey))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+// E を離したら消去を終える（フォーカスが外れた場合も）
+const endErase = (e?: KeyboardEvent) => {
+  if (!e || e.key.toLowerCase() === 'e') editorRef.value?.setErasing(false)
+}
+const onBlur = () => endErase()
+
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('keyup', endErase)
+  window.addEventListener('blur', onBlur)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('keyup', endErase)
+  window.removeEventListener('blur', onBlur)
+})
 </script>
 
 <template>
