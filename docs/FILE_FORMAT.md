@@ -8,7 +8,8 @@
     {
       "id": "o...", "kind": "primitive",
       "primitive": "cube",            // core/primitives.ts の id
-      "color": 6,                     // core/palette.ts のインデックス
+      "color": 11,                    // core/palette.ts のインデックス
+      "params": { "sides": 6 },       // 省略可: 形状オプション（既定値と異なるものだけ。core/primitives.ts の ParamDef）
       "position": [0, 0.1, 0],        // m（Y-up、床は y=0）
       "quaternion": [0, 0, 0, 1],
       "scale": [1, 1, 1]
@@ -28,5 +29,6 @@
 }
 ```
 - 読み込みは `io.parseDoc()` が検証。不正な色IDは既定色に丸め、重複・欠落 ID は振り直し、回転は正規化。未知のプリミティブ、scale 0、ゼロ長の回転、不正なインデックス・groups 範囲、深すぎる `sources` の入れ子はエラー。
+- パラメータ導入前の旧プリミティブ ID（`tri-prism`・`cylinder`・`hemisphere` など）は読み込み時に新 ID＋params へ変換する（`LEGACY_PRIMITIVES`）。削除した `stairs`・`arch` は立方体になる。
 - 互換性を壊す変更をしたら `version` を上げ、`parseDoc` に移行処理を書く。
 - GLB 出力: オブジェクトごとに 1 ノード／色ごとに 1 primitive、マテリアルはパレット色名の PBR（metalness 0, roughness 0.7）。

@@ -16,7 +16,7 @@ export function renderPrimitiveThumbnails(color: string, size = 96): Record<stri
   for (const p of PRIMITIVES) {
     const mesh = new Mesh(buildPrimitiveGeometry(p.id), material)
     scene.add(mesh)
-    const r = Math.max(...p.size) * 1.6
+    const r = Math.max(...p.size({})) * 1.6
     camera.position.set(r * 0.9, r * 0.7, r * 1.2)
     camera.lookAt(0, 0, 0)
     renderer.render(scene, camera)

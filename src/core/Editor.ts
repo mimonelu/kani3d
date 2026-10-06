@@ -46,7 +46,7 @@ import { mergeObjects } from './merge'
 import { checkMesh, type MeshIssues } from './meshCheck'
 import { geometryFromMeshData, setSingleColor, triangleCount } from './meshData'
 import { DEFAULT_COLOR, paletteMaterials } from './palette'
-import { buildPrimitiveGeometry, getPrimitive } from './primitives'
+import { buildPrimitiveGeometry, compactParams, getPrimitive, resolveParams, type PrimitiveParams } from './primitives'
 import type { MeshData, Quat, SceneDoc, SceneObjectData, Vec3 } from './types'
 
 export interface EditorState {
@@ -65,6 +65,8 @@ export interface EditorState {
   xray: boolean
   /** 選択中の結合物の検査結果（合計）。結合物を選択していなければ null */
   selectionIssues: { open: number; nonManifold: number; flipped: number } | null
+  /** 単独選択中のプリミティブとその形状オプション（形状オプション UI 用） */
+  selectionPrimitive: { primitive: string; params: PrimitiveParams } | null
   /** 選択物に結合解除できるものがある */
   canUnmerge: boolean
   /** ドラッグ中の寸法・角度など（HUD 表示用） */
@@ -74,7 +76,7 @@ export interface EditorState {
 }
 
 type ObjUserData =
-  | { id: string; kind: 'primitive'; primitive: string }
+  | { id: string; kind: 'primitive'; primitive: string; params: PrimitiveParams }
   | { id: string; kind: 'mesh'; mesh: MeshData; sources?: SceneObjectData[] }
 
 let idSeq = 0
@@ -230,8 +232,8 @@ export class Editor {
     let geometry: BufferGeometry
     let ud: ObjUserData
     if (d.kind === 'primitive') {
-      geometry = setSingleColor(buildPrimitiveGeometry(d.primitive), d.color)
-      ud = { id: d.id, kind: 'primitive', primitive: d.primitive }
+      geometry = setSingleColor(buildPrimitiveGeometry(d.primitive, d.params), d.color)
+      ud = { id: d.id, kind: 'primitive', primitive: d.primitive, params: resolveParams(d.primitive, d.params) }
     } else {
       geometry = geometryFromMeshData(d.mesh)
       ud = { id: d.id, kind: 'mesh', mesh: d.mesh, sources: d.sources }
@@ -260,7 +262,8 @@ export class Editor {
     const ud = m.userData as ObjUserData
     if (ud.kind === 'primitive') {
       const color = m.geometry.groups[0]?.materialIndex ?? 0
-      return { id: ud.id, kind: 'primitive', primitive: ud.primitive, color, ...t }
+      const params = compactParams(ud.primitive, ud.params)
+      return { id: ud.id, kind: 'primitive', primitive: ud.primitive, color, ...t, ...(params && { params }) }
     }
     return { id: ud.id, kind: 'mesh', mesh: ud.mesh, ...t, ...(ud.sources && { sources: ud.sources }) }
   }
@@ -490,6 +493,35 @@ export class Editor {
       m.flatShading = flat
       m.needsUpdate = true
     }
+    this.emit()
+  }
+
+  /**
+   * 単独選択中のプリミティブの形状オプションを変更して形状を作り直す。
+   * 底面の高さは保つ。commit=false はスライダー操作中のプレビュー（履歴に積まない）
+   */
+  setPrimitiveParams(params: Partial<PrimitiveParams>, commit = true): void {
+    if (this.selection.length !== 1) return
+    const m = this.meshById(this.selection[0])
+    const ud = m?.userData as ObjUserData | undefined
+    if (!m || ud?.kind !== 'primitive') return
+    const next = resolveParams(ud.primitive, { ...ud.params, ...params })
+    if (JSON.stringify(next) !== JSON.stringify(ud.params)) {
+      const bottom = new Box3().setFromObject(m, true).min.y
+      const color = m.geometry.groups[0]?.materialIndex ?? DEFAULT_COLOR
+      ud.params = next
+      const old = m.geometry
+      m.geometry = setSingleColor(buildPrimitiveGeometry(ud.primitive, next), color)
+      old.dispose()
+      if (this.xray) {
+        removeOverlays(m)
+        addOverlays(m)
+      }
+      m.updateMatrixWorld(true)
+      m.position.y += bottom - new Box3().setFromObject(m, true).min.y
+      this.attachTransform()
+    }
+    if (commit) this.commit()
     this.emit()
   }
 
@@ -802,6 +834,10 @@ export class Editor {
       dragInfo: this.dragInfo,
       flatShading: paletteMaterials()[0].flatShading,
       xray: this.xray,
+      selectionPrimitive: (() => {
+        const ud = sel.length === 1 ? (sel[0].userData as ObjUserData) : null
+        return ud?.kind === 'primitive' ? { primitive: ud.primitive, params: { ...ud.params } } : null
+      })(),
       selectionIssues: (() => {
         const merged = sel.map((m) => m.userData as ObjUserData).filter((u) => u.kind === 'mesh')
         if (!merged.length) return null

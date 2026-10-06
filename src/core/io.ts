@@ -2,7 +2,7 @@
 import { Group, Mesh, type Object3D } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { clampColor, exportMaterials } from './palette'
-import { getPrimitive } from './primitives'
+import { LEGACY_PRIMITIVES, compactParams, getPrimitive, resolveParams } from './primitives'
 import type { MeshData, SceneDoc, SceneObjectData } from './types'
 
 export const FILE_EXT = '.kani'
@@ -64,8 +64,14 @@ function parseObjects(list: SceneObjectData[], ids: Set<string> | null, depth: n
       scale: o.scale,
     }
     if (o.kind === 'primitive') {
-      if (!getPrimitive(o.primitive)) throw new Error(`object ${i}: unknown primitive ${o.primitive}`)
-      return { ...base, kind: 'primitive', primitive: o.primitive, color: clampColor(o.color) }
+      // 旧 ID（三角柱・円柱など）はパラメータ付きの新 ID へ変換
+      const legacy = LEGACY_PRIMITIVES[o.primitive]
+      const primitive = legacy?.id ?? o.primitive
+      if (!getPrimitive(primitive)) throw new Error(`object ${i}: unknown primitive ${o.primitive}`)
+      const rawParams = { ...(o.params && typeof o.params === 'object' ? o.params : {}), ...legacy?.params }
+      const params = compactParams(primitive, resolveParams(primitive, rawParams))
+      if (legacy?.scaleY) base.scale = [base.scale[0], base.scale[1] * legacy.scaleY, base.scale[2]]
+      return { ...base, kind: 'primitive', primitive, color: clampColor(o.color), ...(params && { params }) }
     }
     if (o.kind === 'mesh') {
       const sources = Array.isArray(o.sources) ? parseObjects(o.sources, null, depth + 1) : undefined

@@ -15,7 +15,9 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 ## どこを触るか
 | やりたいこと | ファイル |
 |---|---|
-| プリミティブ追加・形状変更 | `core/primitives.ts`（`PRIMITIVES` に1行追加。bbox 正規化・巻き方向・法線は自動。`primitives.test.ts` が全種を検証） |
+| プリミティブ追加・形状オプション | `core/primitives.ts`（`PRIMITIVES` に定義を追加。`params` に ParamDef を書けば UI〈`components/ShapeOptions.vue`〉は自動生成。bbox 正規化・巻き方向・法線は自動。`primitives.test.ts` が全パラメータの端値で閉じた形状かを検証） |
+| 既存オブジェクトの形状変更 | `Editor.setPrimitiveParams`（底面の高さを保って作り直す。スライダー操作中は commit=false でプレビュー） |
+| 旧形式のプリミティブ ID の変換 | `primitives.ts` の `LEGACY_PRIMITIVES`（`io.parseDoc` が適用） |
 | 色の追加・変更 | `core/palette.ts`（インデックス＝保存される色ID。並べ替え禁止、追加は末尾） |
 | 表示グリッド(10cm)・スナップ単位(5cm)・回転刻み・初期サイズ(10cm) | `core/constants.ts`（`GRID` は表示のみ、スナップは `SNAP`） |
 | フラット表示切替（エディタ上の見た目のみ。全マテリアルの `flatShading`、GLB には影響なし） | `Editor.setFlatShading`、記憶は `store.ts` |
@@ -55,7 +57,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 - E2E 用に `Editor.debugHandleScreen()` がハンドルの画面座標を返す（`e2e/gizmo.spec.ts`）。
 
 ## 結合（merge.ts）
-1. three-bvh-csg で和集合（色は groups/マテリアルで保持）→ T 字接合の修復（`fixTJunctions`）→ 平面上の穴埋め（`fillPlanarHoles`）。
+1. three-bvh-csg で和集合（色は groups/マテリアルで保持）→ 近接頂点の統合（`clusterVertices`、0.05mm 以内）→ T 字接合の修復（`fixTJunctions`）→ 平面上の穴埋め（`fillPlanarHoles`）。
    CSG は同一平面で重なる面（床に並べた底面など）で稀に穴・重複を残すため、分割方式（CDT / Legacy）× 結合順の 4 通りを試し、辺の問題が最少のものを採用
 2. 頂点溶接 → 同色・同一平面・フラット法線の連結領域ごとに境界ループを抽出
 3. 共線頂点を除去（隣接領域も同時に除去できる頂点のみ＝T 字の隙間を作らない）して earcut で再三角形化

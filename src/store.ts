@@ -19,6 +19,7 @@ export const state = reactive<EditorState>({
   canUnmerge: false,
   xray: false,
   selectionIssues: null,
+  selectionPrimitive: null,
   canUndo: false,
   canRedo: false,
 })

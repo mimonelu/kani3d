@@ -3,10 +3,10 @@ import { Matrix4, Quaternion, Vector3 } from 'three'
 import { mergeObjects } from './merge'
 import { checkMesh } from './meshCheck'
 import { geometryFromMeshData, setSingleColor } from './meshData'
-import { PRIMITIVES, buildPrimitiveGeometry } from './primitives'
+import { PRIMITIVES, buildPrimitiveGeometry, type PrimitiveParams } from './primitives'
 
-const prim = (id: string, color: number, pos: [number, number, number], rotY = 0) => {
-  const geometry = setSingleColor(buildPrimitiveGeometry(id), color)
+const prim = (id: string, color: number, pos: [number, number, number], rotY = 0, params?: PrimitiveParams) => {
+  const geometry = setSingleColor(buildPrimitiveGeometry(id, params), color)
   return { geometry, matrixWorld: new Matrix4().compose(
       new Vector3(...pos),
       new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), rotY),
@@ -64,27 +64,36 @@ describe('mergeObjects', () => {
     expect(tris(mesh)).toBe(12)
   })
 
-  it('結合結果に穴・裏返りがない（全プリミティブ × 4 種 × 4 配置）', () => {
+  it('結合結果に穴・裏返りがない（プリミティブ各種 × 4 種 × 4 配置）', () => {
     const report: string[] = []
     let nonManifold = 0
-    for (const a of PRIMITIVES) {
-      for (const b of ['cube', 'sphere', 'cylinder', 'stairs']) {
+    const variants: { id: string; params?: PrimitiveParams }[] = [
+      ...PRIMITIVES.map((p) => ({ id: p.id })),
+      { id: 'prism', params: { sides: 3 } },
+      { id: 'prism', params: { sides: 4 } },
+      { id: 'prism', params: { sides: 6, half: true } },
+      { id: 'cone', params: { sides: 4 } },
+      { id: 'sphere', params: { half: true } },
+      { id: 'polyhedron', params: { faces: 8 } },
+    ]
+    for (const a of variants) {
+      for (const b of ['cube', 'sphere', 'prism', 'wedge']) {
         for (const [pos, rot] of [
           [[0.04, 0.07, 0.03], Math.PI / 4],
           [[0.05, 0.05, 0], 0], // 底面・天面が同一平面
           [[0.02, 0.1, -0.03], Math.PI / 2],
           [[0.03, 0.05, 0.02], Math.PI / 4], // 底面が同一平面で斜め
         ] as const) {
-          const { mesh } = mergeObjects([prim(a.id, 0, [0, 0.05, 0]), prim(b, 1, [...pos], rot)])
+          const { mesh } = mergeObjects([prim(a.id, 0, [0, 0.05, 0], 0, a.params), prim(b, 1, [...pos], rot)])
           const r = checkMesh(mesh)
-          if (r.open || r.flipped) report.push(`${a.id}+${b}@${pos}: open ${r.open} flip ${r.flipped}`)
+          if (r.open || r.flipped) report.push(`${a.id}${JSON.stringify(a.params ?? {})}+${b}@${pos}: open ${r.open} flip ${r.flipped}`)
           if (r.nonManifold) nonManifold++
         }
       }
     }
     expect(report).toEqual([])
-    // 辺だけで接する配置（パイプの内壁など）は幾何学的に非多様体になり得る。336 中ごく少数のみ
-    expect(nonManifold).toBeLessThanOrEqual(3)
+    // 辺だけで接する配置（パイプの内壁など）は幾何学的に非多様体になり得る。ごく少数のみ許容
+    expect(nonManifold).toBeLessThanOrEqual(4)
   })
 
   it('checkMesh は穴を検出する', () => {

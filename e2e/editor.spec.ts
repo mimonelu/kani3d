@@ -55,7 +55,7 @@ test('キーボード操作は 5cm 単位、回転は中心が動かない', asy
 })
 
 test('非対称な形状を何度回転しても回転中心がずれない', async ({ page }) => {
-  await page.evaluate(() => (window as any).__kani.addPrimitive('stairs'))
+  await page.evaluate(() => (window as any).__kani.addPrimitive('wedge'))
   const center = () => page.evaluate(() => (window as any).__kani.gizmo.rotationCenter().toArray() as number[])
   const c0 = await center()
   for (const k of ['y', 'y', 'x', 'z', 'Shift+Y', 'y', 'y', 'y', 'y', 'y', 'y']) await page.keyboard.press(k)
@@ -64,9 +64,9 @@ test('非対称な形状を何度回転しても回転中心がずれない', as
 })
 
 test('フラット表示は全体の見た目のみ切り替え、既定はフラット', async ({ page }) => {
-  await page.locator('[data-primitive="cylinder"]').click()
+  await page.locator('[data-primitive="prism"]').click()
   const btn = page.getByRole('button', { name: 'フラット表示' })
-  const flat = () => page.evaluate(() => (window as any).__kani.scene.getObjectByName('円柱').material[0].flatShading)
+  const flat = () => page.evaluate(() => (window as any).__kani.scene.getObjectByName('柱').material[0].flatShading)
   await expect(btn).toHaveClass(/active/)
   expect(await flat()).toBe(true)
   const before = JSON.stringify(await sceneData(page))
@@ -108,7 +108,7 @@ test('前回の状態から起動するとカメラが全オブジェクトを�
     k.addPrimitive('cube')
     k.nudge(30, 0, 30) // 1.5m 先
     k.setSelection([])
-    k.addPrimitive('square-prism')
+    k.addPrimitive('prism')
     k.nudge(-10, 0, 0)
   })
   await page.waitForTimeout(400) // 自動保存の待ち
@@ -133,7 +133,7 @@ test('クリックで選択解除・全選択・結合', async ({ page }) => {
     const k = (window as any).__kani
     k.addPrimitive('cube')
     k.setSelection([])
-    k.addPrimitive('cylinder')
+    k.addPrimitive('prism')
     k.nudge(1, 0, 0)
     k.setColor(0)
     k.setSelection([])
@@ -177,7 +177,7 @@ test('結合物の検査結果表示と X線表示（GLB には影響しない�
     const k = (window as any).__kani
     k.addPrimitive('cube')
     k.setSelection([])
-    k.addPrimitive('cylinder')
+    k.addPrimitive('prism')
     k.nudge(1, 0, 1)
     k.selectAll()
   })
@@ -203,4 +203,41 @@ test('結合物の検査結果表示と X線表示（GLB には影響しない�
 
   await xray.click()
   expect(await page.evaluate(() => (window as any).__kani.scene.getObjectByName('結合オブジェクト').children.length)).toBe(0)
+})
+
+test('形状オプション: 柱の角数・半分を変更でき、Undo できる', async ({ page }) => {
+  await page.locator('[data-primitive="prism"]').click()
+  const sides = page.locator('.shape-options [data-param="sides"]')
+  await expect(sides).toHaveValue('16')
+  const tris = () => page.evaluate(() => (window as any).__kani.currentState().triangles)
+  const before = await tris()
+  await sides.fill('6') // range への fill は input/change を発火
+  await expect.poll(tris).toBeLessThan(before)
+  expect((await sceneData(page))[0]).toMatchObject({ primitive: 'prism', params: { sides: 6 } })
+  await page.locator('.shape-options [data-param="half"]').check()
+  const b = await page.evaluate(() => (window as any).__kani.selectionBounds())
+  expect(b.min[1]).toBeCloseTo(0) // 底面の高さは保つ
+  expect(+(b.max[2] - b.min[2]).toFixed(4)).toBe(0.05)
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  expect((await sceneData(page))[0]).not.toHaveProperty('params')
+  // 複数選択・結合物では「選択すると…」の案内
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.shape-options .empty')).toBeVisible()
+})
+
+test('旧形式のプリミティブ ID は読み込み時に変換される', async ({ page }) => {
+  const doc = {
+    format: 'kani3d',
+    version: 1,
+    objects: [
+      { id: 'a', kind: 'primitive', primitive: 'hex-prism', color: 0, position: [0, 0.05, 0], quaternion: [0, 0, 0, 1], scale: [1, 1, 1] },
+      { id: 'b', kind: 'primitive', primitive: 'square-prism', color: 0, position: [0.2, 0.1, 0], quaternion: [0, 0, 0, 1], scale: [1, 1, 1] },
+    ],
+  }
+  await page.locator('input[type=file]').setInputFiles({ name: 'old.kani', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(doc)) })
+  await expect.poll(async () => (await sceneData(page)).length).toBe(2)
+  const data: any[] = await sceneData(page)
+  expect(data[0]).toMatchObject({ primitive: 'prism', params: { sides: 6 } })
+  expect(data[1]).toMatchObject({ primitive: 'cube', scale: [1, 2, 1] })
 })

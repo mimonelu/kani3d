@@ -225,9 +225,11 @@ export function simplifySoup(soup: Soup): Soup {
       }
     })
     if (iter >= 10) break
-    const bad = soupIssueEdges(out)
-    for (const k of rawIssues) bad.delete(k)
-    if (!bad.size) break
+    const all = soupIssueEdges(out)
+    if (all.size <= rawIssues.size && [...all].every((k) => rawIssues.has(k))) break
+    // 新たに生じた問題辺。無ければ（件数だけ増えた場合）問題辺すべてを対象に戻す
+    const bad = new Set([...all].filter((k) => !rawIssues.has(k)))
+    if (!bad.size) for (const k of all) bad.add(k)
     let reverted = false
     owner.forEach((ri, t) => {
       const r = regions[ri]
@@ -268,6 +270,38 @@ function soupIssueEdges(soup: Soup): Set<string> {
   const bad = new Set<string>()
   for (const [k, c] of count) if (c !== 1001) bad.add(k)
   return bad
+}
+
+/**
+ * 近接頂点の統合: CSG は 0.01mm 程度ずれた「ほぼ同じ頂点」を出すことがあり、
+ * 格子丸めの溶接では境界をまたいで別頂点になる。距離 tol 以内を最初の代表点へ寄せ、退化三角形を除く。
+ * （形状はすべて 5cm 単位で配置されるので 0.05mm の統合は安全）
+ */
+export function clusterVertices(soup: Soup, tol = 5e-5): Soup {
+  const cells = new Map<string, Vector3[]>()
+  const cell = (v: number) => Math.floor(v / tol)
+  const rep = (x: number, y: number, z: number): Vector3 => {
+    const cx = cell(x), cy = cell(y), cz = cell(z)
+    for (let i = -1; i <= 1; i++)
+      for (let j = -1; j <= 1; j++)
+        for (let k = -1; k <= 1; k++)
+          for (const r of cells.get(`${cx + i},${cy + j},${cz + k}`) ?? [])
+            if (Math.abs(r.x - x) <= tol && Math.abs(r.y - y) <= tol && Math.abs(r.z - z) <= tol) return r
+    const r = new Vector3(x, y, z)
+    const key = `${cx},${cy},${cz}`
+    cells.set(key, [...(cells.get(key) ?? []), r])
+    return r
+  }
+  const out: Soup = { pos: [], nor: [], color: [] }
+  for (let t = 0; t < soup.color.length; t++) {
+    const o = t * 9
+    const v = [0, 1, 2].map((i) => rep(soup.pos[o + i * 3], soup.pos[o + i * 3 + 1], soup.pos[o + i * 3 + 2]))
+    if (v[0] === v[1] || v[1] === v[2] || v[0] === v[2]) continue
+    for (const p of v) out.pos.push(p.x, p.y, p.z)
+    for (let k = 0; k < 9; k++) out.nor.push(soup.nor[o + k])
+    out.color.push(soup.color[t])
+  }
+  return out
 }
 
 /**
@@ -589,7 +623,7 @@ export function mergeObjects(inputs: MergeInput[], opts: { simplify?: boolean } 
   let raw: Soup | null = null
   let best = Infinity
   for (const [cdt, reverse] of [[true, false], [true, true], [false, false], [false, true]] as const) {
-    const soup = fillPlanarHoles(fixTJunctions(csgUnion(reverse ? [...inputs].reverse() : inputs, cdt)))
+    const soup = fillPlanarHoles(fixTJunctions(clusterVertices(csgUnion(reverse ? [...inputs].reverse() : inputs, cdt))))
     const issues = soupIssueEdges(soup).size
     if (issues < best) [raw, best] = [soup, issues]
     if (issues === 0) break

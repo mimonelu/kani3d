@@ -6,10 +6,18 @@ import ViewportPane from './components/ViewportPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
 import { editorRef, requestOpen, saveScene, toggleMerge, ui } from './store'
 
+const isTextEntry = (t: HTMLElement) =>
+  t.tagName === 'TEXTAREA' ||
+  t.isContentEditable ||
+  (t instanceof HTMLInputElement && !['range', 'checkbox', 'radio', 'button', 'file'].includes(t.type))
+
 function onKey(e: KeyboardEvent) {
   const ed = editorRef.value
   const t = e.target as HTMLElement
-  if (!ed || e.isComposing || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable) return
+  if (!ed || e.isComposing || isTextEntry(t)) return
+  // スライダー・チェックボックス・セレクト上では矢印キーなどは各コントロールに任せる
+  const passThrough = e.ctrlKey || e.metaKey || ['Escape', 'Delete', 'Backspace'].includes(e.key)
+  if (['INPUT', 'SELECT'].includes(t.tagName) && !passThrough) return
   // ドラッグ中は Esc（取り消し）以外を受け付けない（操作中のオブジェクトを作り直すと状態が壊れるため）
   if (ed.isDragging) {
     if (e.key === 'Escape') ed.cancelDrag()

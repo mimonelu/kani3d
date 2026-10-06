@@ -23,6 +23,8 @@ export interface PrimitiveObject extends Transform {
   kind: 'primitive'
   primitive: string
   color: number
+  /** 形状オプション（既定値と異なるものだけ。core/primitives.ts の ParamDef 参照） */
+  params?: Record<string, number | boolean>
 }
 
 export interface MeshObject extends Transform {

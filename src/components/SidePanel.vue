@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { DEFAULT_COLOR, PALETTE } from '../core/palette'
+import ShapeOptions from './ShapeOptions.vue'
 import { PRIMITIVES, type PrimitiveDef } from '../core/primitives'
 import { renderPrimitiveThumbnails } from '../core/thumbnails'
 import { editorRef, state } from '../store'
@@ -51,6 +52,7 @@ function onDragStart(e: DragEvent, id: string) {
         </div>
       </template>
     </section>
+    <ShapeOptions />
     <section>
       <h3>カラー</h3>
       <div class="palette">
