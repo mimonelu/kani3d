@@ -15,6 +15,7 @@ npm run typecheck  # vue-tsc
 npm test           # vitest（src/**/*.test.ts、Node 上で結合ロジック等）
 npm run e2e        # playwright（e2e/、ポート 5184 で vite を自動起動）
 npm run build
+npm run screenshot # README 用画像を撮り直す（dev サーバー起動中に）
 ```
 
 ## 動作確認

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "three": "^0.186.1",
