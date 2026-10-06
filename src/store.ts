@@ -24,7 +24,14 @@ export const state = reactive<EditorState>({
   canRedo: false,
 })
 
-export const ui = reactive({ fileName: 'untitled', message: '', helpOpen: false, openRequest: 0 })
+export const ui = reactive({
+  fileName: 'untitled',
+  message: '',
+  /** シーンビュー上部に出す警告（自動では消えない。× か次の結合で更新） */
+  alert: '',
+  helpOpen: false,
+  openRequest: 0,
+})
 
 /** ファイルを開くダイアログを要求（ToolBar が監視してファイル選択を開く） */
 export function requestOpen(): void {
@@ -104,6 +111,7 @@ export function notify(message: string, ms = 2500): void {
 
 export function newScene(): void {
   editorRef.value?.newScene()
+  ui.alert = ''
   ui.fileName = 'untitled'
 }
 
@@ -120,6 +128,7 @@ export async function openSceneFile(file: File): Promise<void> {
   try {
     editorRef.value?.loadDoc(parseDoc(await file.text()))
     ui.fileName = file.name.replace(/\.(kani|json)$/i, '')
+    ui.alert = ''
     notify(`${file.name} を読み込みました`)
   } catch (e) {
     notify(`読み込み失敗: ${(e as Error).message}`)
@@ -152,8 +161,10 @@ export function mergeSelection(): void {
     const r = editorRef.value?.mergeSelected()
     if (!r) return notify('2つ以上選択してください')
     const { open, nonManifold, flipped } = r.issues
-    if (open + nonManifold + flipped)
-      notify(`結合結果に問題があります（穴 ${open} / 内部面 ${nonManifold} / 裏返り ${flipped}）。X線表示で確認できます`, 6000)
+    ui.alert =
+      open + nonManifold + flipped
+        ? `結合結果に問題があります（穴 ${open} / 内部面 ${nonManifold} / 裏返り ${flipped}）。X線表示で確認できます。辺だけで接する配置では内部面が出ることがあります`
+        : ''
   } catch (e) {
     notify(`結合失敗: ${(e as Error).message}`)
   }

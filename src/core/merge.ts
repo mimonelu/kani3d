@@ -109,7 +109,11 @@ export function simplifySoup(soup: Soup): Soup {
     e2.subVectors(verts[c], verts[a])
     const n = new Vector3().crossVectors(e1, e2)
     const area2 = n.length()
-    if (area2 < 1e-12) continue
+    if (area2 < 1e-12) {
+      // 面積ほぼゼロでも頂点が異なる三角形は形状を閉じる役割があるので捨てずにそのまま残す
+      tris.push({ v: [a, b, c], color: soup.color[t], n: new Vector3(0, 1, 0), flat: false, src: t })
+      continue
+    }
     n.divideScalar(area2)
     // フラット判定: 3頂点の法線が一致し、面の向きとも概ね一致。
     // 細長い三角形は外積の誤差が大きいので、平面の法線には頂点法線を使う
@@ -256,7 +260,7 @@ function triEdgeKeys(pos: number[], t: number): string[] {
 }
 
 /** 2 枚の面が逆向きで共有していない辺（穴・非多様体・裏返り）のキー集合 */
-function soupIssueEdges(soup: Soup): Set<string> {
+export function soupIssueEdges(soup: Soup): Set<string> {
   const count = new Map<string, number>() // 正方向 +1 / 逆方向 +1000
   for (let t = 0; t < soup.color.length; t++) {
     const k = [pkey(soup.pos, t * 9), pkey(soup.pos, t * 9 + 3), pkey(soup.pos, t * 9 + 6)]

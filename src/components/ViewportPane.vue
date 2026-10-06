@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Editor } from '../core/Editor'
 import { getPrimitive } from '../core/primitives'
-import { bindEditor, editorRef, state } from '../store'
+import { bindEditor, editorRef, state, ui } from '../store'
 
 const host = ref<HTMLDivElement>()
 const cm = (m: number) => +(m * 100).toFixed(1)
@@ -35,12 +35,18 @@ function onDrop(e: DragEvent) {
 
 <template>
   <div class="viewport" ref="host" @dragover.prevent @drop.prevent="onDrop">
-    <div class="hud">
+    <div class="top">
+      <div v-if="ui.alert" class="alert" role="alert">
+        <span>{{ ui.alert }}</span>
+        <button class="close" aria-label="閉じる" @click="ui.alert = ''">×</button>
+      </div>
+      <div class="hud">
       <span>オブジェクト {{ state.objectCount }}</span>
       <span>三角形 {{ state.triangles }}</span>
       <span v-if="state.selection.length">選択 {{ state.selection.length }}（{{ state.selectionTriangles }} 三角形）</span>
       <span v-if="state.selectionSize" class="size">{{ state.selectionSize.map(cm).join(' × ') }} cm</span>
       <span v-if="issues" :class="issues.total ? 'issue-bad' : 'issue-ok'">{{ issues.text }}</span>
+      </div>
     </div>
     <div v-if="state.dragInfo" class="drag-info">{{ state.dragInfo }}</div>
   </div>
@@ -65,12 +71,45 @@ function onDrop(e: DragEvent) {
   padding: 3px 8px;
   border-radius: 4px;
 }
-.hud {
+.top {
+  position: absolute;
   top: 8px;
   left: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+.hud {
+  position: static;
   display: flex;
   gap: 12px;
   color: var(--text-dim);
+}
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 6px 8px 6px 12px;
+  border-radius: 6px;
+  background: rgba(120, 40, 30, 0.92);
+  border: 1px solid #ff5f57;
+  color: #ffe2df;
+  font-size: 12px;
+  pointer-events: auto;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.alert .close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
 }
 .issue-ok {
   color: #4cd964;

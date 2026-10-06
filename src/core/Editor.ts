@@ -253,12 +253,7 @@ export class Editor {
     m.updateWorldMatrix(true, false)
     const p = new Vector3(), q = m.quaternion.clone(), s = new Vector3()
     m.matrixWorld.decompose(p, q, s)
-    const r = (v: number) => Math.round(v * 1e6) / 1e6
-    const t = {
-      position: p.toArray().map(r) as Vec3,
-      quaternion: q.toArray().map(r) as Quat,
-      scale: s.toArray().map(r) as Vec3,
-    }
+    const t = toTransform(p, q, s)
     const ud = m.userData as ObjUserData
     if (ud.kind === 'primitive') {
       const color = m.geometry.groups[0]?.materialIndex ?? 0
@@ -567,7 +562,7 @@ export class Editor {
     // 結合元は結合後メッシュ（位置 center・回転なし・等倍）のローカル座標で保持
     const sources = sel.map((m) => {
       const d = this.meshToData(m)
-      d.position = [d.position[0] - center.x, d.position[1] - center.y, d.position[2] - center.z].map(round6) as Vec3
+      d.position = [d.position[0] - center.x, d.position[1] - center.y, d.position[2] - center.z].map(clean) as Vec3
       return d
     })
     const id = newId()
@@ -611,9 +606,7 @@ export class Editor {
         const d: SceneObjectData = {
           ...src,
           id: newId(), // 複製した結合物を解除しても ID が重複しないよう振り直す
-          position: p.toArray().map(round6) as Vec3,
-          quaternion: q.toArray().map(round6) as Quat,
-          scale: s.toArray().map(round6) as Vec3,
+          ...toTransform(p, q, s),
         }
         this.objectRoot.add(this.buildMesh(d))
         restored.push(d.id)
@@ -878,7 +871,21 @@ function axisLabel(text: string, color: string): Sprite {
   return sprite
 }
 
-const round6 = (v: number) => Math.round(v * 1e6) / 1e6
+/**
+ * 浮動小数のノイズ（0.05000000000000001 など）だけを落とす。
+ * 以前は 1e-6 に丸めていたが、回転が正規化されずわずかに縮み、同一平面だった面がずれて
+ * 結合解除 → 再結合で CSG が穴を残す原因になっていた
+ */
+const clean = (v: number) => Math.round(v * 1e12) / 1e12
+
+function toTransform(p: Vector3, q: Quaternion, s: Vector3): { position: Vec3; quaternion: Quat; scale: Vec3 } {
+  const qn = q.clone().normalize()
+  return {
+    position: p.toArray().map(clean) as Vec3,
+    quaternion: qn.toArray().map(clean) as Quat,
+    scale: s.toArray().map(clean) as Vec3,
+  }
+}
 
 /** 結合元（入れ子含む）をすべて指定色に */
 function recolor(list: SceneObjectData[], color: number): SceneObjectData[] {
