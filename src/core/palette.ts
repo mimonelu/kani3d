@@ -25,7 +25,8 @@ export const PALETTE: readonly PaletteColor[] = [
   { name: '金', hex: '#c9a227' },
 ]
 
-export const DEFAULT_COLOR = 6
+/** 既定色（白） */
+export const DEFAULT_COLOR = 11
 
 let materials: MeshStandardMaterial[] | null = null
 

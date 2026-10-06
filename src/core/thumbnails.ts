@@ -1,12 +1,8 @@
 import { DirectionalLight, HemisphereLight, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, WebGLRenderer } from 'three'
 import { PRIMITIVES, buildPrimitiveGeometry } from './primitives'
 
-const cache = new Map<string, Record<string, string>>()
-
-/** プリミティブ一覧用のサムネイル (dataURL) を一時レンダラーで生成。色ごとにキャッシュ */
+/** プリミティブ一覧用のサムネイル (dataURL) を一時レンダラーで生成 */
 export function renderPrimitiveThumbnails(color: string, size = 96): Record<string, string> {
-  const hit = cache.get(color)
-  if (hit) return hit
   const renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
   renderer.setSize(size, size)
   const scene = new Scene()
@@ -31,6 +27,5 @@ export function renderPrimitiveThumbnails(color: string, size = 96): Record<stri
   material.dispose()
   renderer.dispose()
   renderer.forceContextLoss()
-  cache.set(color, out)
   return out
 }

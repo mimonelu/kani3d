@@ -1,23 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { PALETTE } from '../core/palette'
+import { computed, onMounted, ref } from 'vue'
+import { DEFAULT_COLOR, PALETTE } from '../core/palette'
 import { PRIMITIVES, type PrimitiveDef } from '../core/primitives'
 import { renderPrimitiveThumbnails } from '../core/thumbnails'
 import { editorRef, state } from '../store'
 
 const activeColor = () => state.selectionColor ?? state.currentColor
 
-// サムネイルは現在のカラー（パレットで強調されている色）で描く
+// サムネイルは既定色（白）固定。選択中のカラーとは連動させない
 const thumbs = ref<Record<string, string>>({})
-function updateThumbs() {
+onMounted(() => {
   try {
-    thumbs.value = renderPrimitiveThumbnails(PALETTE[activeColor()].hex)
+    thumbs.value = renderPrimitiveThumbnails(PALETTE[DEFAULT_COLOR].hex)
   } catch {
     /* WebGL 不可の環境ではラベルのみ */
   }
-}
-onMounted(updateThumbs)
-watch(activeColor, updateThumbs)
+})
 
 const categories = computed(() => {
   const map = new Map<string, PrimitiveDef[]>()

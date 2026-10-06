@@ -146,7 +146,7 @@ test('クリックで選択解除・全選択・結合', async ({ page }) => {
   expect(data).toHaveLength(1)
   expect(data[0].kind).toBe('mesh')
   const groups = await page.evaluate(() => (window as any).__kani.toData()[0].mesh.groups.map((g: any) => g.color))
-  expect(groups.sort()).toEqual([0, 6])
+  expect(groups.sort((a: number, b: number) => a - b)).toEqual([0, 11])
 })
 
 test('保存→読み込み、GLB 出力', async ({ page }) => {
@@ -203,12 +203,4 @@ test('結合物の検査結果表示と X線表示（GLB には影響しない�
 
   await xray.click()
   expect(await page.evaluate(() => (window as any).__kani.scene.getObjectByName('結合オブジェクト').children.length)).toBe(0)
-})
-
-test('プリミティブのサムネイルは現在のカラーで描かれる', async ({ page }) => {
-  const src = () => page.locator('[data-primitive="cube"] img').getAttribute('src')
-  await expect(page.locator('[data-primitive="cube"] img')).toBeVisible()
-  const before = await src()
-  await page.locator('[data-color="0"]').click()
-  await expect.poll(src).not.toBe(before)
 })
