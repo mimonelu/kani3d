@@ -32,6 +32,7 @@ export const ui = reactive({
   /** シーンビュー左下のフロート表示（showBanner で出す） */
   banner: null as { kind: 'info' | 'warn'; text: string; id: number } | null,
   helpOpen: false,
+  renderOpen: false,
   openRequest: 0,
 })
 

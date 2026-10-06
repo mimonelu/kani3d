@@ -21,6 +21,7 @@ import {
   MeshBasicMaterial,
   Matrix4,
   Mesh,
+  Group,
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
@@ -49,6 +50,34 @@ import { DEFAULT_COLOR, paletteMaterials } from './palette'
 import { applyTriangleColors, meshPolygons, paintMeshData, primitiveTriColors } from './paint'
 import { buildPrimitiveGeometry, compactParams, getPrimitive, polyIdsOf, resolveParams, type PrimitiveParams } from './primitives'
 import type { MeshData, Quat, SceneDoc, SceneObjectData, Vec3 } from './types'
+
+export type CameraPreset = 'view' | 'front' | 'back' | 'left' | 'right' | 'top' | 'iso'
+
+export interface RenderCamera {
+  position: Vec3
+  target: Vec3
+  up?: Vec3
+}
+
+export interface RenderOptions {
+  width: number
+  height: number
+  /** 背景色（#rrggbb）と不透明度 0〜1 */
+  background: string
+  opacity: number
+  /** グリッド・軸ラインを含める */
+  grid: boolean
+  camera: RenderCamera
+}
+
+export const CAMERA_PRESETS: Record<Exclude<CameraPreset, 'view'>, { label: string; dir: Vec3; up?: Vec3 }> = {
+  iso: { label: '斜め', dir: [1, 0.8, 1.2] },
+  front: { label: '正面', dir: [0, 0, 1] },
+  back: { label: '背面', dir: [0, 0, -1] },
+  right: { label: '右', dir: [1, 0, 0] },
+  left: { label: '左', dir: [-1, 0, 0] },
+  top: { label: '上', dir: [0, 1, 0], up: [0, 0, -1] },
+}
 
 export interface EditorState {
   objectCount: number
@@ -101,6 +130,8 @@ export class Editor {
   readonly gizmo: Gizmo
 
   private readonly objectRoot = new Object3D()
+  /** グリッド・軸ライン（画像出力で含めるか選べる） */
+  private readonly ground = new Group()
   private readonly pivot = new Object3D()
   private readonly helpers = new Map<string, BoxHelper>()
   private readonly history = new History()
@@ -173,6 +204,8 @@ export class Editor {
       for (const mat of mats) if (!paletteMaterials().includes(mat as never)) mat.dispose()
     })
     this.orbit.dispose()
+    this.imageRenderer?.dispose()
+    this.imageRenderer?.forceContextLoss()
     this.renderer.dispose()
     this.renderer.forceContextLoss()
     el.remove()
@@ -192,8 +225,9 @@ export class Editor {
     minor.position.y = -0.0005
     for (const g of [minor, major]) {
       g.raycast = () => {}
-      this.scene.add(g)
+      this.ground.add(g)
     }
+    this.scene.add(this.ground)
     // 原点から +X / +Z 方向の軸ライン（細い板で太さを出す）
     const half = GRID_EXTENT / 2
     for (const axis of ['x', 'z'] as const) {
@@ -203,10 +237,10 @@ export class Editor {
       line.position.set(axis === 'x' ? half / 2 : 0, 0.0008, axis === 'z' ? half / 2 : 0)
       line.raycast = () => {}
       line.renderOrder = 1
-      this.scene.add(line)
+      this.ground.add(line)
       const label = axisLabel(axis === 'x' ? '+X' : '+Z', AXIS_COLOR[axis])
       label.position.set(axis === 'x' ? half + 0.12 : 0, 0.02, axis === 'z' ? half + 0.12 : 0)
-      this.scene.add(label)
+      this.ground.add(label)
     }
   }
 
@@ -918,6 +952,87 @@ export class Editor {
     this.orbit.update()
   }
 
+  // ------------------------------------------------------------ 画像出力
+
+  private imageRenderer: WebGLRenderer | null = null
+
+  /** シーンビューの描画サイズ（px） */
+  viewSize(): { width: number; height: number } {
+    const v = this.renderer.getDrawingBufferSize(new Vector2())
+    return { width: v.x, height: v.y }
+  }
+
+  /** シーンビューの現在のカメラ */
+  viewCamera(): RenderCamera {
+    this.camera.updateMatrixWorld()
+    return { position: toVec3(this.camera.position), target: toVec3(this.orbit.target) }
+  }
+
+  /** プリセット方向から全オブジェクトが収まるカメラ（aspect = 出力画像の幅 / 高さ） */
+  presetCamera(preset: CameraPreset, aspect: number): RenderCamera {
+    if (preset === 'view') return this.viewCamera()
+    const box = new Box3()
+    for (const m of this.meshes) box.expandByObject(m, true)
+    const sphere = box.isEmpty() ? new Sphere(new Vector3(), 0.1) : box.getBoundingSphere(new Sphere())
+    const r = Math.max(sphere.radius, 0.05)
+    const vFov = (this.camera.fov * Math.PI) / 180
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect)
+    const dist = (r / Math.sin(Math.min(vFov, hFov) / 2)) * 1.05
+    const dir = new Vector3(...CAMERA_PRESETS[preset].dir).normalize()
+    const position = sphere.center.clone().addScaledVector(dir, dist)
+    return { position: toVec3(position), target: toVec3(sphere.center), up: CAMERA_PRESETS[preset].up }
+  }
+
+  /**
+   * 画像としてレンダリング（選択枠・ハンドル・X線などエディタ用の表示は除く）。
+   * 戻り値は描画済みの canvas（使い回すので、すぐに toBlob / toDataURL すること）
+   */
+  renderImage(o: RenderOptions): HTMLCanvasElement {
+    const r = (this.imageRenderer ??= new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }))
+    const max = r.capabilities.maxTextureSize
+    const w = Math.max(1, Math.min(max, Math.round(o.width)))
+    const h = Math.max(1, Math.min(max, Math.round(o.height)))
+    r.setPixelRatio(1)
+    r.setSize(w, h, false)
+    r.setClearColor(o.background, o.opacity)
+
+    const cam = new PerspectiveCamera(this.camera.fov, w / h, 0.01, 200)
+    cam.position.set(...o.camera.position)
+    if (o.camera.up) cam.up.set(...o.camera.up)
+    cam.lookAt(...o.camera.target)
+    cam.updateMatrixWorld()
+
+    // エディタ用の表示を一時的に隠す
+    const hidden: Object3D[] = [this.gizmo.root, ...this.helpers.values()]
+    if (!o.grid) hidden.push(this.ground)
+    for (const m of this.meshes) for (const c of m.children) hidden.push(c)
+    const restore = hidden.map((h) => [h, h.visible] as const)
+    hidden.forEach((h) => (h.visible = false))
+    const mats = paletteMaterials().map((m) => ({ m, t: m.transparent, op: m.opacity, dw: m.depthWrite, side: m.side }))
+    for (const { m } of mats) {
+      m.transparent = false
+      m.opacity = 1
+      m.depthWrite = true
+      m.side = FrontSide
+    }
+    const bg = this.scene.background
+    this.scene.background = null
+    try {
+      r.render(this.scene, cam)
+    } finally {
+      this.scene.background = bg
+      for (const { m, t, op, dw, side } of mats) Object.assign(m, { transparent: t, opacity: op, depthWrite: dw, side })
+      restore.forEach(([h, v]) => (h.visible = v))
+    }
+    return r.domElement
+  }
+
+  /** PNG（可逆）で出力 */
+  renderPng(o: RenderOptions): Promise<Blob> {
+    const canvas = this.renderImage(o)
+    return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG 変換に失敗しました'))), 'image/png'))
+  }
+
   exportGlb(): Promise<ArrayBuffer> {
     this.releasePivot()
     const p = exportGlb(this.meshes)
@@ -1257,3 +1372,5 @@ function baseColorOf(ud: ObjUserData): number {
   }
   return [...area].reduce((best, cur) => (cur[1] > best[1] ? cur : best), [DEFAULT_COLOR, -1])[0]
 }
+
+const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z].map((x) => Math.round(x * 1e4) / 1e4) as Vec3

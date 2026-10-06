@@ -30,6 +30,7 @@ function confirmNew() {
       <button @click="openFile" title="Ctrl+O">開く</button>
       <button @click="saveScene" title="Ctrl+S">保存</button>
       <button @click="exportGlbFile">GLB出力</button>
+      <button title="レンダリング結果を PNG で保存" @click="ui.renderOpen = true">画像出力</button>
       <input ref="fileInput" type="file" :accept="`${FILE_EXT},.json`" hidden @change="onFile" />
     </div>
     <div class="group">
@@ -96,8 +97,8 @@ function confirmNew() {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 6px 10px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
@@ -106,7 +107,7 @@ function confirmNew() {
   font-size: 15px;
 }
 .name {
-  width: 120px;
+  width: 100px;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -136,9 +137,10 @@ button {
   background: var(--button);
   border: none;
   border-radius: 7px;
-  padding: 5px 11px;
+  padding: 5px 9px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12.5px;
+  white-space: nowrap;
 }
 button:hover:not(:disabled) {
   background: var(--button-hover);

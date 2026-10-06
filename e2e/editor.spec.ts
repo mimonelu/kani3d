@@ -378,3 +378,29 @@ test('ペイント中に E キーでカーソル下のポリゴンの色を消�
   await page.keyboard.press('Control+z')
   expect(await painted()).toBe(n - 1)
 })
+
+test('画像出力: 背景透過の PNG を指定サイズで保存できる', async ({ page }) => {
+  await page.evaluate(() => (window as any).__kani.addPrimitive('cube'))
+  await page.getByRole('button', { name: '画像出力' }).click()
+  await expect(page.locator('[data-test="render-preview"]')).toBeVisible()
+  await page.locator('[data-field="fileName"]').fill('shot')
+  await page.locator('[data-field="sizePreset"]').selectOption('1280x720')
+  await page.locator('[data-field="opacity"]').fill('0')
+  await page.locator('[data-field="cameraPreset"]').selectOption('front')
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PNG を保存' }).click()])
+  expect(dl.suggestedFilename()).toBe('shot.png')
+  const buf = await readFile(await dl.path())
+  expect(buf.subarray(1, 4).toString()).toBe('PNG')
+  expect([buf.readUInt32BE(16), buf.readUInt32BE(20)]).toEqual([1280, 720]) // IHDR
+  expect(buf[25]).toBe(6) // RGBA
+  // 隅は透明、中央（立方体）は不透明
+  const alpha = await page.evaluate(async (b64) => {
+    const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob())
+    const c = new OffscreenCanvas(img.width, img.height)
+    const ctx = c.getContext('2d')!
+    ctx.drawImage(img, 0, 0)
+    return [ctx.getImageData(2, 2, 1, 1).data[3], ctx.getImageData(640, 360, 1, 1).data[3]]
+  }, buf.toString('base64'))
+  expect(alpha).toEqual([0, 255])
+  await expect(page.locator('.dialog[aria-label="画像出力"]')).toHaveCount(0)
+})

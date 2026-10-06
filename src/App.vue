@@ -4,6 +4,7 @@ import SidePanel from './components/SidePanel.vue'
 import ToolBar from './components/ToolBar.vue'
 import ViewportPane from './components/ViewportPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
+import RenderDialog from './components/RenderDialog.vue'
 import { editorRef, requestOpen, saveScene, state, toggleMerge, ui } from './store'
 
 const isTextEntry = (t: HTMLElement) =>
@@ -26,6 +27,10 @@ function onKey(e: KeyboardEvent) {
   }
   if (ui.helpOpen) {
     if (e.key === 'Escape' || e.key === '?') ui.helpOpen = false
+    return
+  }
+  if (ui.renderOpen) {
+    if (e.key === 'Escape') ui.renderOpen = false
     return
   }
   if (e.key === '?') return (ui.helpOpen = true), e.preventDefault()
@@ -94,6 +99,7 @@ onBeforeUnmount(() => {
       <SidePanel />
     </main>
     <HelpDialog />
+    <RenderDialog />
   </div>
 </template>
 
