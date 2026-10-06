@@ -47,6 +47,19 @@ const sections = [
         <strong>ヘルプ</strong>
         <button class="close" aria-label="閉じる" @click="ui.helpOpen = false">×</button>
       </header>
+      <section class="about">
+        <h3>このアプリについて</h3>
+        <p><strong>kani3d</strong> <span class="version">v{{ version }}</span></p>
+        <p>
+          <a href="https://github.com/mimonelu/kani3d/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+          — ソースコードは改変・再配布・商用利用が自由（著作権表示は残してください）。このエディタで作ったモデル・画像は作った人のもので、商用利用も自由です。
+        </p>
+        <p>&copy; 2026 mimonelu</p>
+        <p class="links">
+          <a href="https://bsky.app/profile/mimonelu.net" target="_blank" rel="noopener">Bluesky</a>
+          <a href="https://github.com/mimonelu/kani3d" target="_blank" rel="noopener">GitHub</a>
+        </p>
+      </section>
       <section v-for="s in sections" :key="s.title">
         <h3>{{ s.title }}</h3>
         <dl>
@@ -61,19 +74,6 @@ const sections = [
         の法線は変わりません。結合後に移動・回転・拡縮しても「結合解除」で元のオブジェクトに戻せます。結合物は自動で検査され（穴・内部面・裏返り）、
         選択すると左上に結果が出ます。「X線表示」では隠れた面とワイヤーフレームが見え、問題のある辺が赤く表示されます。
       </p>
-      <section class="about">
-        <h3>このアプリについて</h3>
-        <p><strong>kani3d</strong> <span class="version">v{{ version }}</span></p>
-        <p>
-          <a href="https://github.com/mimonelu/kani3d/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
-          — ソースコードは改変・再配布・商用利用が自由（著作権表示は残してください）。このエディタで作ったモデル・画像は作った人のもので、商用利用も自由です。
-        </p>
-        <p>&copy; 2026 mimonelu</p>
-        <p class="links">
-          <a href="https://bsky.app/profile/mimonelu.net" target="_blank" rel="noopener">Bluesky</a>
-          <a href="https://github.com/mimonelu/kani3d" target="_blank" rel="noopener">GitHub</a>
-        </p>
-      </section>
     </div>
   </div>
 </template>
@@ -132,9 +132,9 @@ dd {
   margin: 0;
 }
 .about {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
 }
 .about p {
   margin: 4px 0;
