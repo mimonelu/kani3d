@@ -46,7 +46,7 @@ function csgUnion(inputs: MergeInput[]): Soup {
 }
 
 /** 三角形スープ。tris は頂点インデックスではなく座標を直接持つ */
-export interface Soup {
+interface Soup {
   pos: number[] // 9 per tri
   nor: number[] // 9 per tri
   color: number[] // 1 per tri
@@ -343,7 +343,7 @@ function triangulateLoops(
 // ---------------------------------------------------------------- 出力
 
 /** スープ → インデックス付き MeshData（位置+法線で溶接、色ごとに group 化） */
-export function soupToMeshData(soup: Soup, center = new Vector3()): MeshData {
+function soupToMeshData(soup: Soup, center: Vector3): MeshData {
   const order = soup.color.map((_, i) => i).sort((a, b) => soup.color[a] - soup.color[b])
   const positions: number[] = []
   const normals: number[] = []

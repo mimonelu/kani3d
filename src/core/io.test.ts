@@ -28,3 +28,13 @@ describe('parseDoc', () => {
     expect(() => parseDoc(JSON.stringify(createDoc([bad as never])))).toThrow()
   })
 })
+
+describe('結合元 (sources)', () => {
+  it('入れ子の sources も往復できる', () => {
+    const mesh = { positions: [0, 0, 0, 1, 0, 0, 0, 1, 0], normals: [0, 0, 1, 0, 0, 1, 0, 0, 1], indices: [0, 1, 2], groups: [{ start: 0, count: 3, color: 1 }] }
+    const t = { position: cube.position, quaternion: cube.quaternion, scale: cube.scale }
+    const inner: SceneObjectData = { id: 'm1', kind: 'mesh', mesh, sources: [cube], ...t }
+    const doc = createDoc([{ id: 'm2', kind: 'mesh', mesh, sources: [inner, cube], ...t }])
+    expect(parseDoc(stringifyDoc(doc))).toEqual(doc)
+  })
+})

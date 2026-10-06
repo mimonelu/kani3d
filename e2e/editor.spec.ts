@@ -63,16 +63,69 @@ test('非対称な形状を何度回転しても回転中心がずれない', as
   for (let i = 0; i < 3; i++) expect(c1[i]).toBeCloseTo(c0[i], 6)
 })
 
-test('シェーディング切替は保存され、Undo できる', async ({ page }) => {
+test('フラット表示は全体の見た目のみ切り替え、既定はフラット', async ({ page }) => {
   await page.locator('[data-primitive="cylinder"]').click()
-  const smooth = page.getByRole('button', { name: 'スムーズ' })
-  const flat = page.getByRole('button', { name: 'フラット' })
-  await expect(smooth).toHaveClass(/active/) // 円柱の既定
-  await flat.click()
-  await expect(flat).toHaveClass(/active/)
-  expect((await sceneData(page))[0]).toMatchObject({ shading: 'flat' })
+  const btn = page.getByRole('button', { name: 'フラット表示' })
+  const flat = () => page.evaluate(() => (window as any).__kani.scene.getObjectByName('円柱').material[0].flatShading)
+  await expect(btn).toHaveClass(/active/)
+  expect(await flat()).toBe(true)
+  const before = JSON.stringify(await sceneData(page))
+  await btn.click()
+  await expect(btn).not.toHaveClass(/active/)
+  expect(await flat()).toBe(false)
+  expect(JSON.stringify(await sceneData(page))).toBe(before) // データは変わらない
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'フラット表示' })).not.toHaveClass(/active/) // 設定は記憶
+})
+
+test('結合解除: 結合後の移動・色変更を引き継いで元に戻る', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.addPrimitive('cube')
+    k.setSelection([])
+    k.addPrimitive('cone')
+    k.nudge(2, 0, 0)
+    k.selectAll()
+    k.mergeSelected()
+    k.nudge(0, 0, 4) // 結合後に 20cm 移動
+    k.setColor(0)
+  })
+  await expect(page.getByRole('button', { name: '結合解除' })).toBeEnabled()
+  await page.keyboard.press('Control+Shift+g')
+  const data = await sceneData(page)
+  expect(data.map((d: any) => d.primitive).sort()).toEqual(['cone', 'cube'])
+  const cube = data.find((d: any) => d.primitive === 'cube')!
+  expect(cube.position.map((v) => +v.toFixed(4))).toEqual([0, 0.05, 0.2])
+  expect(data.every((d) => d.color === 0)).toBe(true)
+  await expect(page.getByRole('button', { name: '結合解除' })).toBeDisabled()
   await page.keyboard.press('Control+z')
-  await expect(smooth).toHaveClass(/active/)
+  expect(await sceneData(page)).toHaveLength(1)
+})
+
+test('前回の状態から起動するとカメラが全オブジェクトを映す', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.addPrimitive('cube')
+    k.nudge(30, 0, 30) // 1.5m 先
+    k.setSelection([])
+    k.addPrimitive('square-prism')
+    k.nudge(-10, 0, 0)
+  })
+  await page.waitForTimeout(400) // 自動保存の待ち
+  await page.reload()
+  await page.waitForFunction(() => (window as any).__kani)
+  const visible = await page.evaluate(() => {
+    const k = (window as any).__kani
+    const cam = k.camera
+    cam.updateMatrixWorld()
+    return k.scene.children
+      .find((c: any) => c.children.some((m: any) => m.isMesh && m.userData.id))
+      .children.every((m: any) => {
+        const p = m.position.clone().project(cam)
+        return Math.abs(p.x) < 1 && Math.abs(p.y) < 1 && p.z < 1 && cam.position.distanceTo(m.position) > 0.2
+      })
+  })
+  expect(visible).toBe(true)
 })
 
 test('クリックで選択解除・全選択・結合', async ({ page }) => {

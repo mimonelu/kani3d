@@ -33,23 +33,28 @@ function parseMesh(m: unknown): MeshData {
 export function parseDoc(text: string): SceneDoc {
   const raw = JSON.parse(text) as Partial<SceneDoc>
   if (raw.format !== 'kani3d' || raw.version !== 1 || !Array.isArray(raw.objects)) throw new Error('kani3d 形式ではありません')
-  const objects = raw.objects.map((o, i): SceneObjectData => {
+  return { format: 'kani3d', version: 1, objects: parseObjects(raw.objects) }
+}
+
+function parseObjects(list: SceneObjectData[]): SceneObjectData[] {
+  return list.map((o, i): SceneObjectData => {
     if (!isNums(o.position, 3) || !isNums(o.quaternion, 4) || !isNums(o.scale, 3)) throw new Error(`object ${i}: invalid transform`)
     const base = {
       id: typeof o.id === 'string' && o.id ? o.id : `o${i}`,
       position: o.position,
       quaternion: o.quaternion,
       scale: o.scale,
-      ...(o.shading === 'smooth' || o.shading === 'flat' ? { shading: o.shading } : {}),
     }
     if (o.kind === 'primitive') {
       if (!getPrimitive(o.primitive)) throw new Error(`object ${i}: unknown primitive ${o.primitive}`)
       return { ...base, kind: 'primitive', primitive: o.primitive, color: clampColor(o.color) }
     }
-    if (o.kind === 'mesh') return { ...base, kind: 'mesh', mesh: parseMesh(o.mesh) }
+    if (o.kind === 'mesh') {
+      const sources = Array.isArray(o.sources) ? parseObjects(o.sources) : undefined
+      return { ...base, kind: 'mesh', mesh: parseMesh(o.mesh), ...(sources && { sources }) }
+    }
     throw new Error(`object ${i}: unknown kind`)
   })
-  return { format: 'kani3d', version: 1, objects }
 }
 
 export const stringifyDoc = (doc: SceneDoc): string => JSON.stringify(doc)

@@ -15,7 +15,8 @@ export const state = reactive<EditorState>({
   selectionSize: null,
   currentColor: DEFAULT_COLOR,
   dragInfo: '',
-  selectionShading: null,
+  flatShading: true,
+  canUnmerge: false,
   canUndo: false,
   canRedo: false,
 })
@@ -23,6 +24,7 @@ export const state = reactive<EditorState>({
 export const ui = reactive({ fileName: 'untitled', message: '', helpOpen: false })
 
 const AUTOSAVE_KEY = 'kani3d:autosave'
+const FLAT_KEY = 'kani3d:flatShading'
 
 export function bindEditor(editor: Editor): void {
   editorRef.value = markRaw(editor)
@@ -39,12 +41,24 @@ export function bindEditor(editor: Editor): void {
     }, 300)
   }
   try {
+    editor.setFlatShading(localStorage.getItem(FLAT_KEY) !== '0')
     const saved = localStorage.getItem(AUTOSAVE_KEY)
     if (saved) editor.loadDoc(parseDoc(saved))
   } catch {
     /* 壊れた自動保存は無視 */
   }
   Object.assign(state, editor.currentState())
+}
+
+/** エディタ表示のフラット / スムーズ切替（ブラウザに記憶） */
+export function toggleFlatShading(): void {
+  const flat = !state.flatShading
+  editorRef.value?.setFlatShading(flat)
+  try {
+    localStorage.setItem(FLAT_KEY, flat ? '1' : '0')
+  } catch {
+    /* 無視 */
+  }
 }
 
 export function notify(message: string): void {

@@ -32,7 +32,7 @@ let materials: MeshStandardMaterial[] | null = null
 /** パレット全色のマテリアル配列（全メッシュで共有。geometry.groups[].materialIndex = 色ID） */
 export function paletteMaterials(): MeshStandardMaterial[] {
   materials ??= PALETTE.map(
-    (c) => new MeshStandardMaterial({ name: c.name, color: c.hex, roughness: 0.7, metalness: 0 }),
+    (c) => new MeshStandardMaterial({ name: c.name, color: c.hex, roughness: 0.7, metalness: 0, flatShading: true }),
   )
   return materials
 }

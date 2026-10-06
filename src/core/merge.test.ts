@@ -3,7 +3,6 @@ import { Matrix4, Quaternion, Vector3 } from 'three'
 import { mergeObjects } from './merge'
 import { geometryFromMeshData, setSingleColor } from './meshData'
 import { buildPrimitiveGeometry } from './primitives'
-import { reshadeMeshData } from './shading'
 
 const prim = (id: string, color: number, pos: [number, number, number], rotY = 0) => {
   const geometry = setSingleColor(buildPrimitiveGeometry(id), color)
@@ -62,14 +61,5 @@ describe('mergeObjects', () => {
     const m = new Matrix4().makeTranslation(first.center.x, first.center.y, first.center.z)
     const { mesh } = mergeObjects([{ geometry: g, matrixWorld: m }, prim('cube', 0, [0.2, 0.05, 0])])
     expect(tris(mesh)).toBe(12)
-  })
-
-  it('シェーディング切替: flat は面法線、smooth は曲面を滑らかに', () => {
-    const { mesh } = mergeObjects([prim('cylinder', 0, [0, 0.05, 0]), prim('cube', 0, [0.1, 0.05, 0])])
-    const flat = reshadeMeshData(mesh, 'flat')
-    const smooth = reshadeMeshData(mesh, 'smooth')
-    expect(flat.indices.length).toBe(smooth.indices.length)
-    expect(smooth.positions.length).toBeLessThan(flat.positions.length) // 滑らかな部分は頂点共有
-    expect(flat.groups).toEqual(smooth.groups)
   })
 })

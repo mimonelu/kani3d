@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { FILE_EXT } from '../core/io'
-import { editorRef, exportGlbFile, mergeSelection, newScene, openSceneFile, saveScene, state, ui } from '../store'
+import { editorRef, exportGlbFile, mergeSelection, newScene, openSceneFile, saveScene, state, toggleFlatShading, ui } from '../store'
 
 const fileInput = ref<HTMLInputElement>()
 
@@ -35,23 +35,17 @@ function confirmNew() {
       <button :disabled="!state.selection.length" @click="editorRef?.duplicateSelected()" title="Ctrl+D">複製</button>
       <button :disabled="!state.selection.length" @click="editorRef?.deleteSelected()" title="Delete">削除</button>
       <button :disabled="state.selection.length < 2" @click="mergeSelection" title="Ctrl+G">結合</button>
+      <button :disabled="!state.canUnmerge" @click="editorRef?.unmergeSelected()" title="Ctrl+Shift+G">結合解除</button>
     </div>
-    <div class="group" title="選択物のシェーディング（GLB の法線にも反映）">
+    <div class="group">
+      <button title="すべてのオブジェクトが映るようにカメラを合わせる (Home)" @click="editorRef?.frameAll()">全体表示</button>
       <button
-        :disabled="!state.selection.length"
-        :class="{ active: state.selection.length && state.selectionShading === 'smooth' }"
-        title="グローシェーディング（60° 未満の折れを滑らかに）"
-        @click="editorRef?.setShading('smooth')"
+        :class="{ active: state.flatShading }"
+        :aria-pressed="state.flatShading"
+        title="エディタ上の表示のみ切り替え（GLB には影響しません）"
+        @click="toggleFlatShading"
       >
-        スムーズ
-      </button>
-      <button
-        :disabled="!state.selection.length"
-        :class="{ active: state.selection.length && state.selectionShading === 'flat' }"
-        title="フラットシェーディング（面ごとの法線）"
-        @click="editorRef?.setShading('flat')"
-      >
-        フラット
+        フラット表示
       </button>
     </div>
     <span class="message">{{ ui.message }}</span>

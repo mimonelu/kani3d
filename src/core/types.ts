@@ -3,9 +3,6 @@
 export type Vec3 = [number, number, number]
 export type Quat = [number, number, number, number]
 
-/** smooth = グローシェーディング（60° 未満の折れを滑らかに）、flat = 面ごとの法線 */
-export type Shading = 'smooth' | 'flat'
-
 export interface Transform {
   position: Vec3
   quaternion: Quat
@@ -26,16 +23,17 @@ export interface PrimitiveObject extends Transform {
   kind: 'primitive'
   primitive: string
   color: number
-  /** 未指定ならプリミティブ既定 */
-  shading?: Shading
 }
 
 export interface MeshObject extends Transform {
   id: string
   kind: 'mesh'
   mesh: MeshData
-  /** 未指定なら結合元の法線のまま（混在） */
-  shading?: Shading
+  /**
+   * 結合前のオブジェクト（結合解除用）。transform はこのメッシュのローカル座標系での値。
+   * 入れ子の結合も sources 内に再帰的に保持される。
+   */
+  sources?: SceneObjectData[]
 }
 
 export type SceneObjectData = PrimitiveObject | MeshObject

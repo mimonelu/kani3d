@@ -14,13 +14,16 @@ import {
   HemisphereLight,
   MOUSE,
   MeshBasicMaterial,
+  Matrix4,
   Mesh,
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
   Plane,
+  Quaternion,
   Raycaster,
   Scene,
+  Sphere,
   Sprite,
   SpriteMaterial,
   Vector2,
@@ -37,8 +40,7 @@ import { mergeObjects } from './merge'
 import { geometryFromMeshData, setSingleColor, triangleCount } from './meshData'
 import { DEFAULT_COLOR, paletteMaterials } from './palette'
 import { buildPrimitiveGeometry, getPrimitive } from './primitives'
-import { reshadeMeshData } from './shading'
-import type { MeshData, Quat, SceneDoc, SceneObjectData, Shading, Vec3 } from './types'
+import type { MeshData, Quat, SceneDoc, SceneObjectData, Vec3 } from './types'
 
 export interface EditorState {
   objectCount: number
@@ -50,8 +52,10 @@ export interface EditorState {
   /** 選択物全体のサイズ (m) */
   selectionSize: Vec3 | null
   currentColor: number
-  /** 選択物がすべて同じシェーディングならその値 */
-  selectionShading: Shading | null
+  /** エディタ表示のフラットシェーディング（見た目のみ。GLB の法線には影響しない） */
+  flatShading: boolean
+  /** 選択物に結合解除できるものがある */
+  canUnmerge: boolean
   /** ドラッグ中の寸法・角度など（HUD 表示用） */
   dragInfo: string
   canUndo: boolean
@@ -59,8 +63,8 @@ export interface EditorState {
 }
 
 type ObjUserData =
-  | { id: string; kind: 'primitive'; primitive: string; shading?: Shading }
-  | { id: string; kind: 'mesh'; mesh: MeshData; shading?: Shading }
+  | { id: string; kind: 'primitive'; primitive: string }
+  | { id: string; kind: 'mesh'; mesh: MeshData; sources?: SceneObjectData[] }
 
 let idSeq = 0
 const newId = () => `o${Date.now().toString(36)}${(idSeq++).toString(36)}`
@@ -95,16 +99,14 @@ export class Editor {
     container.appendChild(this.renderer.domElement)
     this.scene.background = new Color('#1b1f24')
 
-    this.camera.position.set(0.45, 0.42, 0.6)
     this.setupLightsAndGround()
     this.scene.add(this.objectRoot, this.pivot)
 
     // 中ボタン=パン、右ボタン=回転、ホイール=ズーム。左は選択・ギズモ用に空ける
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement)
     this.orbit.mouseButtons = { LEFT: null, MIDDLE: MOUSE.PAN, RIGHT: MOUSE.ROTATE }
-    this.orbit.target.set(0, 0.05, 0)
     this.orbit.enableDamping = false
-    this.orbit.update()
+    this.resetView()
 
     this.gizmo = new Gizmo(this.camera, (o) => this.snapBoxMin(o))
     this.scene.add(this.gizmo.root)
@@ -196,11 +198,11 @@ export class Editor {
     let geometry: BufferGeometry
     let ud: ObjUserData
     if (d.kind === 'primitive') {
-      geometry = setSingleColor(buildPrimitiveGeometry(d.primitive, d.shading), d.color)
-      ud = { id: d.id, kind: 'primitive', primitive: d.primitive, shading: d.shading }
+      geometry = setSingleColor(buildPrimitiveGeometry(d.primitive), d.color)
+      ud = { id: d.id, kind: 'primitive', primitive: d.primitive }
     } else {
       geometry = geometryFromMeshData(d.mesh)
-      ud = { id: d.id, kind: 'mesh', mesh: d.mesh, shading: d.shading }
+      ud = { id: d.id, kind: 'mesh', mesh: d.mesh, sources: d.sources }
     }
     geometry.computeBoundingBox()
     const mesh = new Mesh(geometry, paletteMaterials())
@@ -225,9 +227,9 @@ export class Editor {
     const ud = m.userData as ObjUserData
     if (ud.kind === 'primitive') {
       const color = m.geometry.groups[0]?.materialIndex ?? 0
-      return { id: ud.id, kind: 'primitive', primitive: ud.primitive, color, ...t, ...(ud.shading && { shading: ud.shading }) }
+      return { id: ud.id, kind: 'primitive', primitive: ud.primitive, color, ...t }
     }
-    return { id: ud.id, kind: 'mesh', mesh: ud.mesh, ...t, ...(ud.shading && { shading: ud.shading }) }
+    return { id: ud.id, kind: 'mesh', mesh: ud.mesh, ...t, ...(ud.sources && { sources: ud.sources }) }
   }
 
   toData(): SceneObjectData[] {
@@ -249,9 +251,12 @@ export class Editor {
     this.setSelection(selection.filter((id) => data.some((d) => d.id === id)))
   }
 
+  /** 読み込み（起動時の自動保存復元を含む）。オブジェクトがあれば全体が映るようカメラを合わせる */
   loadDoc(doc: SceneDoc): void {
     this.restore(doc.objects)
     this.history.reset(this.toData())
+    if (doc.objects.length) this.frameAll()
+    else this.resetView()
     this.emit()
   }
 
@@ -415,35 +420,21 @@ export class Editor {
       const ud = m.userData as ObjUserData
       if (ud.kind === 'mesh') {
         ud.mesh = { ...ud.mesh, groups: [{ start: 0, count: ud.mesh.indices.length, color }] }
+        // 結合解除したときも色が引き継がれるよう結合元も塗り替える
+        if (ud.sources) ud.sources = recolor(ud.sources, color)
       }
       setSingleColor(m.geometry, color)
     }
     this.commit()
   }
 
-  /** 選択物のシェーディング（法線）を切り替える。GLB にもそのまま出力される */
-  setShading(shading: Shading): void {
-    if (!this.selection.length) return
-    this.releasePivot()
-    for (const id of this.selection) {
-      const old = this.meshById(id)!
-      const d = this.meshToData(old)
-      d.shading = shading
-      if (d.kind === 'mesh') d.mesh = reshadeMeshData(d.mesh, shading)
-      const m = this.buildMesh(d)
-      old.parent!.add(m)
-      old.removeFromParent()
-      old.geometry.dispose()
+  /** エディタ表示のシェーディング切替（全オブジェクト共通・見た目のみ） */
+  setFlatShading(flat: boolean): void {
+    for (const m of paletteMaterials()) {
+      m.flatShading = flat
+      m.needsUpdate = true
     }
-    this.setSelection(this.selection)
-    this.commit()
-  }
-
-  /** 実効シェーディング。結合物で未指定なら null（混在） */
-  private shadingOf(m: Mesh): Shading | null {
-    const ud = m.userData as ObjUserData
-    if (ud.shading) return ud.shading
-    return ud.kind === 'primitive' ? (getPrimitive(ud.primitive)?.smooth ? 'smooth' : 'flat') : null
+    this.emit()
   }
 
   /** 選択物を移動（矢印キー用）。delta はスナップ単位 */
@@ -479,13 +470,67 @@ export class Editor {
       m.removeFromParent()
       m.geometry.dispose()
     }
+    // 結合元は結合後メッシュ（位置 center・回転なし・等倍）のローカル座標で保持
+    const sources = sel.map((m) => {
+      const d = this.meshToData(m)
+      d.position = [d.position[0] - center.x, d.position[1] - center.y, d.position[2] - center.z].map(round6) as Vec3
+      return d
+    })
     const id = newId()
     this.objectRoot.add(
-      this.buildMesh({ id, kind: 'mesh', mesh, position: center.toArray() as Vec3, quaternion: [0, 0, 0, 1], scale: [1, 1, 1] }),
+      this.buildMesh({
+        id,
+        kind: 'mesh',
+        mesh,
+        sources,
+        position: center.toArray() as Vec3,
+        quaternion: [0, 0, 0, 1],
+        scale: [1, 1, 1],
+      }),
     )
     this.setSelection([id])
     this.commit()
     return id
+  }
+
+  /** 選択中の結合オブジェクトを結合前に戻す（結合後の移動・回転・拡縮は結合元に引き継ぐ） */
+  unmergeSelected(): string[] {
+    this.releasePivot()
+    const restored: string[] = []
+    const keep: string[] = []
+    for (const id of this.selection) {
+      const m = this.meshById(id)!
+      const ud = m.userData as ObjUserData
+      if (ud.kind !== 'mesh' || !ud.sources) {
+        keep.push(id)
+        continue
+      }
+      m.updateMatrixWorld(true)
+      for (const src of ud.sources) {
+        const local = new Matrix4().compose(
+          new Vector3(...src.position),
+          new Quaternion(...src.quaternion),
+          new Vector3(...src.scale),
+        )
+        const p = new Vector3(), q = new Quaternion(), s = new Vector3()
+        new Matrix4().multiplyMatrices(m.matrixWorld, local).decompose(p, q, s)
+        const d: SceneObjectData = {
+          ...src,
+          id: newId(), // 複製した結合物を解除しても ID が重複しないよう振り直す
+          position: p.toArray().map(round6) as Vec3,
+          quaternion: q.toArray().map(round6) as Quat,
+          scale: s.toArray().map(round6) as Vec3,
+        }
+        this.objectRoot.add(this.buildMesh(d))
+        restored.push(d.id)
+      }
+      m.removeFromParent()
+      m.geometry.dispose()
+    }
+    if (!restored.length) return []
+    this.setSelection([...keep, ...restored])
+    this.commit()
+    return restored
   }
 
   /** 選択物全体のワールド AABB */
@@ -500,12 +545,36 @@ export class Editor {
   /** 選択物にカメラ注視点を合わせる */
   focusSelection(): void {
     const sel = this.selection.map((id) => this.meshById(id)!)
+    if (!sel.length) return this.frameAll()
     const box = new Box3()
-    for (const m of sel.length ? sel : this.meshes) box.expandByObject(m, true)
-    if (box.isEmpty()) return
-    const c = box.getCenter(new Vector3())
-    this.camera.position.add(c.clone().sub(this.orbit.target))
-    this.orbit.target.copy(c)
+    for (const m of sel) box.expandByObject(m, true)
+    this.fitBox(box)
+  }
+
+  /** すべてのオブジェクトが映るようにカメラを合わせる（無ければ初期視点） */
+  frameAll(): void {
+    const box = new Box3()
+    for (const m of this.meshes) box.expandByObject(m, true)
+    if (box.isEmpty()) this.resetView()
+    else this.fitBox(box)
+  }
+
+  resetView(): void {
+    this.orbit.target.set(0, 0.05, 0)
+    this.camera.position.set(0.45, 0.42, 0.6)
+    this.orbit.update()
+  }
+
+  /** 現在の視線方向を保ったまま、箱の外接球が画面に収まる距離へ */
+  private fitBox(box: Box3): void {
+    const sphere = box.getBoundingSphere(new Sphere())
+    const r = Math.max(sphere.radius, 0.05)
+    const vFov = (this.camera.fov * Math.PI) / 180
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect)
+    const dist = (r / Math.sin(Math.min(vFov, hFov) / 2)) * 1.1
+    const dir = this.camera.position.clone().sub(this.orbit.target).normalize()
+    this.orbit.target.copy(sphere.center)
+    this.camera.position.copy(sphere.center).addScaledVector(dir, dist)
     this.orbit.update()
   }
 
@@ -641,10 +710,8 @@ export class Editor {
         return b ? (b.max.map((v, i) => Math.round((v - b.min[i]) * 1e4) / 1e4) as Vec3) : null
       })(),
       dragInfo: this.dragInfo,
-      selectionShading: (() => {
-        const set = new Set(sel.map((m) => this.shadingOf(m)))
-        return set.size === 1 ? [...set][0] : null
-      })(),
+      flatShading: paletteMaterials()[0].flatShading,
+      canUnmerge: sel.some((m) => (m.userData as ObjUserData).kind === 'mesh' && !!(m.userData as { sources?: unknown }).sources),
       canUndo: this.history.canUndo,
       canRedo: this.history.canRedo,
     }
@@ -670,4 +737,19 @@ function axisLabel(text: string, color: string): Sprite {
   sprite.scale.set(0.2, 0.1, 1)
   sprite.raycast = () => {}
   return sprite
+}
+
+const round6 = (v: number) => Math.round(v * 1e6) / 1e6
+
+/** 結合元（入れ子含む）をすべて指定色に */
+function recolor(list: SceneObjectData[], color: number): SceneObjectData[] {
+  return list.map((d) =>
+    d.kind === 'primitive'
+      ? { ...d, color }
+      : {
+          ...d,
+          mesh: { ...d.mesh, groups: [{ start: 0, count: d.mesh.indices.length, color }] },
+          ...(d.sources && { sources: recolor(d.sources, color) }),
+        },
+  )
 }

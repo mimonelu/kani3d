@@ -18,7 +18,9 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | プリミティブ追加・形状変更 | `core/primitives.ts`（`PRIMITIVES` に1行追加。bbox 正規化・巻き方向・法線は自動。`primitives.test.ts` が全種を検証） |
 | 色の追加・変更 | `core/palette.ts`（インデックス＝保存される色ID。並べ替え禁止、追加は末尾） |
 | 表示グリッド(10cm)・スナップ単位(5cm)・回転刻み・初期サイズ(10cm) | `core/constants.ts`（`GRID` は表示のみ、スナップは `SNAP`） |
-| シェーディング切替（法線の再計算） | `core/shading.ts`、プリミティブは `buildPrimitiveGeometry(id, shading)` |
+| フラット表示切替（エディタ上の見た目のみ。全マテリアルの `flatShading`、GLB には影響なし） | `Editor.setFlatShading`、記憶は `store.ts` |
+| カメラのフィット（全体表示・起動/読み込み時の自動フィット） | `Editor.frameAll / fitBox / resetView` |
+| 結合解除 | `Editor.unmergeSelected`（データは `MeshObject.sources`） |
 | 結合（CSG・面数削減） | `core/merge.ts` / テスト `core/merge.test.ts` |
 | 保存形式・GLB 出力 | `core/io.ts`、型は `core/types.ts` |
 | Undo/Redo | `core/history.ts`（スナップショット方式） |
@@ -34,6 +36,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 - three.js 上では 1 オブジェクト = 1 `Mesh`。`material` は**全メッシュ共通のパレット配列**（`paletteMaterials()`）で、`geometry.groups[].materialIndex` が色ID。
 - `Editor.toData()` ⇄ `restore()` がシーンとデータを相互変換し、保存・読み込み・Undo すべてがこれを通る。
 - `MeshData` は不変として扱う（色変更時も新オブジェクトを作る）→ 履歴間で参照共有できる。
+- 結合物は `sources` に結合前のオブジェクトを **結合物のローカル座標** で保持する（入れ子可）。結合解除はその時点の結合物の行列を掛けて戻すので、結合後の移動・回転・拡縮が引き継がれる（回転した結合元を非等倍拡縮した場合は歪みを近似）。色変更は `sources` にも再帰的に反映。
 
 ## 操作とスナップ（Editor + Gizmo）
 - マウス: 左=選択・ハンドル・本体ドラッグ（Shift/Ctrl+クリックで追加選択）、中=パン、右=回転、ホイール=ズーム（OrbitControls の LEFT は無効）。

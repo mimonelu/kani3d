@@ -22,7 +22,7 @@ function onKey(e: KeyboardEvent) {
       if (k === 'z') return e.shiftKey ? ed.redo() : ed.undo(), true
       if (k === 'y') return ed.redo(), true
       if (k === 'd') return ed.duplicateSelected(), true
-      if (k === 'g') return mergeSelection(), true
+      if (k === 'g') return e.shiftKey ? ed.unmergeSelected() : mergeSelection(), true
       if (k === 'a') return ed.selectAll(), true
       if (k === 's') return saveScene(), true
       return false
@@ -37,12 +37,13 @@ function onKey(e: KeyboardEvent) {
       case 'ArrowDown': return ed.nudge(0, 0, 1), true
       case 'PageUp': return ed.nudge(0, 1, 0), true
       case 'PageDown': return ed.nudge(0, -1, 0), true
+      case 'Home': return ed.frameAll(), true
     }
     switch (k) {
       case 'x':
       case 'y':
       case 'z': return ed.rotateSelected(k, e.shiftKey ? -1 : 1), true
-      case 'f': return ed.focusSelection(), true
+      case 'f': return e.shiftKey ? ed.frameAll() : ed.focusSelection(), true
     }
     return false
   })()
