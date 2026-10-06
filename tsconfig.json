@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "jsx": "preserve",
-    "types": ["vite/client", "vitest/config"]
+    "types": ["vite/client", "vitest/config", "node"]
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts", "e2e/**/*.ts", "playwright.config.ts"]
 }

@@ -4,6 +4,7 @@ import { Editor } from '../core/Editor'
 import { bindEditor, editorRef, state } from '../store'
 
 const host = ref<HTMLDivElement>()
+const cm = (m: number) => +(m * 100).toFixed(1)
 
 onMounted(() => {
   const editor = new Editor(host.value!)
@@ -28,6 +29,7 @@ function onDrop(e: DragEvent) {
       <span>オブジェクト {{ state.objectCount }}</span>
       <span>三角形 {{ state.triangles }}</span>
       <span v-if="state.selection.length">選択 {{ state.selection.length }}（{{ state.selectionTriangles }} 三角形）</span>
+      <span v-if="state.selectionSize" class="size">{{ state.selectionSize.map(cm).join(' × ') }} cm</span>
     </div>
     <div class="hint">左クリック: 選択（Shift で追加） / 右ドラッグ: 回転 / 中ドラッグ: 移動 / ホイール: 拡縮</div>
   </div>

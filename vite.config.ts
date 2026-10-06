@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   server: { port: 5183 },
+  build: { chunkSizeWarningLimit: 1500 }, // three.js 同梱のため
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],

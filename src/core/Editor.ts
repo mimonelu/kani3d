@@ -43,6 +43,8 @@ export interface EditorState {
   selectionTriangles: number
   /** 選択物がすべて同じ単色ならその色ID */
   selectionColor: number | null
+  /** 選択物全体のサイズ (m) */
+  selectionSize: Vec3 | null
   currentColor: number
   mode: TransformMode
   canUndo: boolean
@@ -457,6 +459,15 @@ export class Editor {
     return id
   }
 
+  /** 選択物全体のワールド AABB */
+  selectionBounds(): { min: Vec3; max: Vec3 } | null {
+    const box = new Box3()
+    for (const id of this.selection) box.expandByObject(this.meshById(id)!, true)
+    if (box.isEmpty()) return null
+    const r = (v: Vector3) => v.toArray().map((x) => Math.round(x * 1e4) / 1e4) as Vec3
+    return { min: r(box.min), max: r(box.max) }
+  }
+
   /** 選択物にカメラ注視点を合わせる */
   focusSelection(): void {
     const sel = this.selection.map((id) => this.meshById(id)!)
@@ -529,6 +540,10 @@ export class Editor {
       selectionTriangles: sel.reduce((n, m) => n + triangleCount(m.geometry), 0),
       selectionColor: colors.size === 1 ? [...colors][0] : null,
       currentColor: this.currentColor,
+      selectionSize: (() => {
+        const b = this.selectionBounds()
+        return b ? (b.max.map((v, i) => Math.round((v - b.min[i]) * 1e4) / 1e4) as Vec3) : null
+      })(),
       mode: this.mode,
       canUndo: this.history.canUndo,
       canRedo: this.history.canRedo,

@@ -12,6 +12,7 @@ export const state = reactive<EditorState>({
   selection: [],
   selectionTriangles: 0,
   selectionColor: null,
+  selectionSize: null,
   currentColor: DEFAULT_COLOR,
   mode: 'translate',
   canUndo: false,
@@ -24,13 +25,17 @@ const AUTOSAVE_KEY = 'kani3d:autosave'
 
 export function bindEditor(editor: Editor): void {
   editorRef.value = markRaw(editor)
+  let timer = 0
   editor.onChange = (s) => {
     Object.assign(state, s)
-    try {
-      localStorage.setItem(AUTOSAVE_KEY, stringifyDoc(editor.toDoc()))
-    } catch {
-      /* 容量超過などは無視 */
-    }
+    clearTimeout(timer)
+    timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(AUTOSAVE_KEY, stringifyDoc(editor.toDoc()))
+      } catch {
+        /* 容量超過などは無視 */
+      }
+    }, 300)
   }
   try {
     const saved = localStorage.getItem(AUTOSAVE_KEY)
