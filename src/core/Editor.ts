@@ -70,6 +70,8 @@ export interface EditorState {
   selectionPrimitive: { primitive: string; params: PrimitiveParams; painted: boolean } | null
   /** ペイントモード中 */
   paintMode: boolean
+  /** 選択物に最適化解除できるものがある */
+  canUnoptimize: boolean
   /** 選択物に結合解除できるものがある */
   canUnmerge: boolean
   /** ドラッグ中の寸法・角度など（HUD 表示用） */
@@ -80,7 +82,13 @@ export interface EditorState {
 
 type ObjUserData =
   | { id: string; kind: 'primitive'; primitive: string; params: PrimitiveParams; color: number; faceColors?: Record<number, number> }
-  | { id: string; kind: 'mesh'; mesh: MeshData; sources?: SceneObjectData[] }
+  | {
+      id: string
+      kind: 'mesh'
+      mesh: MeshData
+      sources?: SceneObjectData[]
+      optimizedFrom?: { object: SceneObjectData; offset: Vec3 }
+    }
 
 let idSeq = 0
 const newId = () => `o${Date.now().toString(36)}${(idSeq++).toString(36)}`
@@ -246,7 +254,7 @@ export class Editor {
       geometry = primitiveGeometry(ud)
     } else {
       geometry = geometryFromMeshData(d.mesh)
-      ud = { id: d.id, kind: 'mesh', mesh: d.mesh, sources: d.sources }
+      ud = { id: d.id, kind: 'mesh', mesh: d.mesh, sources: d.sources, optimizedFrom: d.optimizedFrom }
     }
     geometry.computeBoundingBox()
     const mesh = new Mesh(geometry, paletteMaterials())
@@ -278,7 +286,14 @@ export class Editor {
         ...(faceColors && { faceColors }),
       }
     }
-    return { id: ud.id, kind: 'mesh', mesh: ud.mesh, ...t, ...(ud.sources && { sources: ud.sources }) }
+    return {
+      id: ud.id,
+      kind: 'mesh',
+      mesh: ud.mesh,
+      ...t,
+      ...(ud.sources && { sources: ud.sources }),
+      ...(ud.optimizedFrom && { optimizedFrom: ud.optimizedFrom }),
+    }
   }
 
   toData(): SceneObjectData[] {
@@ -485,6 +500,7 @@ export class Editor {
         ud.mesh = { ...ud.mesh, groups: [{ start: 0, count: ud.mesh.indices.length, color }] }
         // 結合解除したときも色が引き継がれるよう結合元も塗り替える
         if (ud.sources) ud.sources = recolor(ud.sources, color)
+        if (ud.optimizedFrom) ud.optimizedFrom = { ...ud.optimizedFrom, object: recolor([ud.optimizedFrom.object], color)[0] }
         setSingleColor(m.geometry, color)
       } else {
         // 全体の色変更はポリゴン単位の塗りも上書きする
@@ -643,8 +659,8 @@ export class Editor {
   }
 
   /**
-   * 選択物それぞれの面数を最適化（同色・同一平面の面をまとめる）。通常の編集として扱い、戻すときは Undo。
-   * オブジェクト自身の座標系で処理するので位置・回転・拡縮はそのまま。結合物の結合元（sources）は引き継ぐ
+   * 選択物それぞれの面数を最適化（同色・同一平面の面をまとめる）。最適化前の形は optimizedFrom に残し「最適化解除」で戻せる。
+   * オブジェクト自身の座標系で処理するので位置・回転・拡縮はそのまま。結合物の結合元（sources）も引き継ぐので結合解除も可能
    */
   optimizeSelected(): { optimized: number; before: number; after: number } {
     this.releasePivot()
@@ -673,9 +689,19 @@ export class Editor {
       m.updateMatrixWorld(true)
       const d = this.meshToData(m)
       const position = toTransform(m.localToWorld(center.clone()), m.quaternion, m.scale).position
+      const optimizedFrom = { object: d, offset: center.toArray().map(clean) as Vec3 }
       disposeMesh(m)
       this.objectRoot.add(
-        this.buildMesh({ id: d.id, kind: 'mesh', mesh, ...(sources && { sources }), position, quaternion: d.quaternion, scale: d.scale }),
+        this.buildMesh({
+          id: d.id,
+          kind: 'mesh',
+          mesh,
+          ...(sources && { sources }),
+          optimizedFrom,
+          position,
+          quaternion: d.quaternion,
+          scale: d.scale,
+        }),
       )
       ids.push(d.id)
       result.optimized++
@@ -684,6 +710,26 @@ export class Editor {
     this.setSelection(ids)
     if (result.optimized) this.commit()
     return result
+  }
+
+  /** 最適化前の形に戻す（最適化後の移動・回転・拡縮は引き継ぐ） */
+  unoptimizeSelected(): number {
+    this.releasePivot()
+    let count = 0
+    for (const id of this.selection) {
+      const m = this.meshById(id)!
+      const ud = m.userData as ObjUserData
+      if (ud.kind !== 'mesh' || !ud.optimizedFrom) continue
+      m.updateMatrixWorld(true)
+      const off = new Vector3(...ud.optimizedFrom.offset).negate()
+      const d: SceneObjectData = { ...ud.optimizedFrom.object, id, ...toTransform(m.localToWorld(off), m.quaternion, m.scale) }
+      disposeMesh(m)
+      this.objectRoot.add(this.buildMesh(d))
+      count++
+    }
+    this.setSelection(this.selection)
+    if (count) this.commit()
+    return count
   }
 
   /** 選択物を移動（矢印キー用）。delta はスナップ単位 */
@@ -1042,6 +1088,7 @@ export class Editor {
         }
         return total
       })(),
+      canUnoptimize: sel.some((m) => !!(m.userData as { optimizedFrom?: unknown }).optimizedFrom),
       canUnmerge: sel.some((m) => (m.userData as ObjUserData).kind === 'mesh' && !!(m.userData as { sources?: unknown }).sources),
       canUndo: this.history.canUndo,
       canRedo: this.history.canRedo,

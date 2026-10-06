@@ -18,7 +18,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | プリミティブ追加・形状オプション | `core/primitives.ts`（`PRIMITIVES` に定義を追加。`params` に ParamDef を書けば UI〈`components/ShapeOptions.vue`〉は自動生成。bbox 正規化・巻き方向・法線は自動。`primitives.test.ts` が全パラメータの端値で閉じた形状かを検証） |
 | 既存オブジェクトの形状変更 | `Editor.setPrimitiveParams`（底面の高さを保って作り直す。スライダー操作中は commit=false でプレビュー） |
 | ポリゴン単位のペイント | `core/paint.ts`（三角形ごとの色 → index を色順に並べ替えて groups 化）、`Editor.setPaintMode / paintHit`。ポリゴン番号はプリミティブ生成時に `geometry.userData.polyIds`（`PrimitiveDef.polygons`: 同一平面でつながった三角形 or 立方体のマス目）、結合物は `meshPolygons`（同一平面でつながった三角形） |
-| 単体の面数最適化 | `Editor.optimizeSelected`（オブジェクトのローカル座標で 1 入力の `mergeObjects` を通す。位置・回転・拡縮は保持。通常の編集なので戻すのは Undo。結合物の `sources` は原点のずれ分を補正して引き継ぐ） |
+| 単体の面数最適化 | `Editor.optimizeSelected`（オブジェクトのローカル座標で 1 入力の `mergeObjects` を通す。位置・回転・拡縮は保持。最適化前の形は `optimizedFrom` に残し、ボタンは結合と同様に切り替え式で「最適化解除」で戻す〈`store.optimizeMode`〉。結合物の `sources` は原点のずれ分を補正して引き継ぐので結合解除も可能） |
 | 旧形式のプリミティブ ID の変換 | `primitives.ts` の `LEGACY_PRIMITIVES`（`io.parseDoc` が適用） |
 | 色の追加・変更 | `core/palette.ts`（インデックス＝保存される色ID。並べ替え禁止、追加は末尾） |
 | 表示グリッド(10cm)・スナップ単位(5cm)・回転刻み・初期サイズ(10cm) | `core/constants.ts`（`GRID` は表示のみ、スナップは `SNAP`） |

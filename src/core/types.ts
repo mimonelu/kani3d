@@ -38,6 +38,11 @@ export interface MeshObject extends Transform {
    * 入れ子の結合も sources 内に再帰的に保持される。
    */
   sources?: SceneObjectData[]
+  /**
+   * 最適化前のオブジェクト（最適化解除用）。object の transform は使わず、
+   * このメッシュのローカル座標で -offset の位置・同じ回転・拡縮に戻す
+   */
+  optimizedFrom?: { object: SceneObjectData; offset: Vec3 }
 }
 
 export type SceneObjectData = PrimitiveObject | MeshObject

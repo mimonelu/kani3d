@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { FILE_EXT } from '../core/io'
-import { editorRef, exportGlbFile, mergeMode, newScene, openSceneFile, optimizeSelection, saveScene, state, toggleFlatShading, toggleMerge, ui } from '../store'
+import { editorRef, exportGlbFile, mergeMode, newScene, openSceneFile, optimizeMode, toggleOptimize, saveScene, state, toggleFlatShading, toggleMerge, ui } from '../store'
 
 const fileInput = ref<HTMLInputElement>()
 
@@ -39,8 +39,16 @@ function confirmNew() {
     <div class="group">
       <button :disabled="!state.selection.length" @click="editorRef?.duplicateSelected()" title="Ctrl+D">複製</button>
       <button :disabled="!state.selection.length" @click="editorRef?.deleteSelected()" title="Delete">削除</button>
-      <button :disabled="!state.selection.length" title="同じ色・同じ平面の面をまとめて三角形を減らす（結合解除で元に戻せる）" @click="optimizeSelection">
-        最適化
+      <button
+        :disabled="optimizeMode === null"
+        :title="
+          optimizeMode === 'unoptimize'
+            ? '最適化する前の形に戻す'
+            : '同じ色・同じ平面の面をまとめて三角形を減らす（最適化解除で戻せる）'
+        "
+        @click="toggleOptimize"
+      >
+        {{ optimizeMode === 'unoptimize' ? '最適化解除' : '最適化' }}
       </button>
       <button
         :disabled="mergeMode === null"

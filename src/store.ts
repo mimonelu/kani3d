@@ -17,6 +17,7 @@ export const state = reactive<EditorState>({
   dragInfo: '',
   flatShading: true,
   canUnmerge: false,
+  canUnoptimize: false,
   xray: false,
   selectionIssues: null,
   selectionPrimitive: null,
@@ -157,6 +158,18 @@ export function toggleMerge(): void {
   else if (mergeMode.value === 'unmerge') editorRef.value?.unmergeSelected()
 }
 
+/** 最適化ボタンの動作: 最適化済みを選んでいれば最適化解除、それ以外は最適化 */
+export const optimizeMode = computed<'optimize' | 'unoptimize' | null>(() =>
+  state.canUnoptimize ? 'unoptimize' : state.selection.length ? 'optimize' : null,
+)
+
+export function toggleOptimize(): void {
+  if (optimizeMode.value === 'unoptimize') {
+    editorRef.value?.unoptimizeSelected()
+    ui.banner = null
+  } else if (optimizeMode.value === 'optimize') optimizeSelection()
+}
+
 /** 選択物の面数を最適化（同色・同一平面の面をまとめる） */
 export function optimizeSelection(): void {
   try {
@@ -165,7 +178,7 @@ export function optimizeSelection(): void {
     ui.banner = {
       kind: 'info',
       text: r.optimized
-        ? `面数を最適化しました（${r.before} → ${r.after} 三角形）。元に戻すには「元に戻す」（Ctrl+Z）`
+        ? `面数を最適化しました（${r.before} → ${r.after} 三角形）。「最適化解除」で元の形に戻せます`
         : 'これ以上は削減できません',
     }
   } catch (e) {

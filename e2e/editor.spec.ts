@@ -289,10 +289,14 @@ test('ペイント: 分割した立方体のマス 1 つだけを塗り、最適
   await expect(page.locator('.hud')).toContainText('検査: 問題なし')
 
   await expect(page.locator('.banner.info')).toContainText('面数を最適化しました')
-  // 最適化は通常の編集: 結合解除の対象ではなく、元に戻すで塗った立方体に戻る
-  await expect(page.getByRole('button', { name: '結合', exact: true })).toBeDisabled()
-  await page.keyboard.press('Control+z')
-  expect((await page.evaluate(() => (window as any).__kani.toData()[0])).faceColors).toBeTruthy()
+  // 最適化済みを選ぶとボタンは「最適化解除」になり、塗った立方体（分割・塗りそのまま）に戻る
+  await page.keyboard.press('ArrowRight') // 最適化後の移動は引き継ぐ
+  await page.getByRole('button', { name: '最適化解除' }).click()
+  const back = (await page.evaluate(() => (window as any).__kani.toData()[0])) as any
+  expect(back).toMatchObject({ kind: 'primitive', primitive: 'cube', params: { segX: 8, segY: 8, segZ: 8 } })
+  expect(Object.values(back.faceColors)).toEqual([4])
+  expect(back.position[0]).toBeCloseTo(0.05, 6)
+  await expect(page.getByRole('button', { name: '最適化', exact: true })).toBeEnabled()
 })
 
 test('最適化: 位置・回転・拡縮を保つ（結合物は結合元を保つ）', async ({ page }) => {

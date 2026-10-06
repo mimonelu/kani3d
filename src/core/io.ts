@@ -76,7 +76,12 @@ function parseObjects(list: SceneObjectData[], ids: Set<string> | null, depth: n
     }
     if (o.kind === 'mesh') {
       const sources = Array.isArray(o.sources) ? parseObjects(o.sources, null, depth + 1) : undefined
-      return { ...base, kind: 'mesh', mesh: parseMesh(o.mesh), ...(sources && { sources }) }
+      const of = o.optimizedFrom
+      const optimizedFrom =
+        of && typeof of === 'object' && of.object && isNums(of.offset, 3)
+          ? { object: parseObjects([of.object], null, depth + 1)[0], offset: of.offset }
+          : undefined
+      return { ...base, kind: 'mesh', mesh: parseMesh(o.mesh), ...(sources && { sources }), ...(optimizedFrom && { optimizedFrom }) }
     }
     throw new Error(`object ${i}: unknown kind`)
   })

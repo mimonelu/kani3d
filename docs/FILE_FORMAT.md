@@ -24,6 +24,7 @@
         "groups":    [{ "start": 0, "count": 36, "color": 0 }]  // indices の範囲ごとの色
       },
       "sources": [ /* 省略可: 結合前のオブジェクト（この結合物のローカル座標）。結合解除に使う。入れ子可 */ ],
+      "optimizedFrom": { "object": { /* 省略可: 最適化前のオブジェクト */ }, "offset": [0, 0, 0] },  // 最適化解除用
       "position": [...], "quaternion": [...], "scale": [...]
     }
   ]
