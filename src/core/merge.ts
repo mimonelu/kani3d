@@ -111,13 +111,16 @@ export function simplifySoup(soup: Soup): Soup {
     const area2 = n.length()
     if (area2 < 1e-12) continue
     n.divideScalar(area2)
-    let flat = true
-    for (let k = 0; k < 3; k++) {
-      const o = t * 9 + k * 3
-      const dot = n.x * soup.nor[o] + n.y * soup.nor[o + 1] + n.z * soup.nor[o + 2]
-      if (dot < 0.9999) flat = false
+    // フラット判定: 3頂点の法線が一致し、面の向きとも概ね一致。
+    // 細長い三角形は外積の誤差が大きいので、平面の法線には頂点法線を使う
+    const o = t * 9
+    const vn = new Vector3(soup.nor[o], soup.nor[o + 1], soup.nor[o + 2]).normalize()
+    let flat = vn.dot(n) > 0.99
+    for (let k = 1; k < 3 && flat; k++) {
+      const dot = vn.x * soup.nor[o + k * 3] + vn.y * soup.nor[o + k * 3 + 1] + vn.z * soup.nor[o + k * 3 + 2]
+      if (dot < 0.99999) flat = false
     }
-    tris.push({ v: [a, b, c], color: soup.color[t], n, flat, src: t })
+    tris.push({ v: [a, b, c], color: soup.color[t], n: flat ? vn : n, flat, src: t })
   }
 
   // 平面キーで分類 → 辺共有で連結成分へ
@@ -299,10 +302,19 @@ function triangulateLoops(
   const w = new Vector3().crossVectors(n, u)
   const to2 = (p: Vector3) => new Vector2(p.dot(u), p.dot(w))
 
-  const cleaned = loops.map((l) => l.filter((v) => !removable(v)))
-  if (cleaned.some((l) => l.length < 3)) return null
-  const pts2 = cleaned.map((l) => l.map((v) => to2(verts[v])))
-  const areas = pts2.map((p) => ShapeUtils.area(p))
+  // 面積ゼロのループ（CSG が落とした退化三角形の跡）は無視する
+  const cleaned: number[][] = []
+  const pts2: Vector2[][] = []
+  const areas: number[] = []
+  for (const l of loops) {
+    const c = l.filter((v) => !removable(v))
+    const p = c.map((v) => to2(verts[v]))
+    const a = c.length >= 3 ? ShapeUtils.area(p) : 0
+    if (Math.abs(a) < 1e-10) continue
+    cleaned.push(c)
+    pts2.push(p)
+    areas.push(a)
+  }
   const outerIdx = areas.findIndex((a) => a > 0)
   if (outerIdx < 0 || areas.filter((a) => a > 0).length !== 1) return null
   const holeIdx = areas.map((_, i) => i).filter((i) => i !== outerIdx)
