@@ -22,6 +22,9 @@ npm run screenshot # README 用画像を撮り直す（dev サーバー起動中
 - E2E/手動確認とも `window.__kani`（Editor インスタンス）で状態取得・操作できる（`toData()`, `selectionBounds()`, `addPrimitive()` など）
 - ブラウザペインでは `.claude/launch.json` の `dev` 構成を使う
 
+## 公開
+- GitHub Pages: `main` への push で `.github/workflows/deploy.yml` が公開（Vite の `base: './'` で相対パス出力）
+
 ## 作業ルール
 - 一段落したら `typecheck → test → e2e` を通し、差分と構造を見直してからコミット（プッシュしない）
 - 仕様や構造を変えたら docs/ も更新する

@@ -6,6 +6,8 @@
 
 プリミティブを置いて、動かして、塗って、くっつけて、`.glb` で書き出す。
 
+### [▶ ブラウザで試す](https://mimonelu.github.io/kani3d/)
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 ![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)
@@ -65,6 +67,7 @@ npm run e2e         # Playwright（実ブラウザでの操作）
 npm run build
 ```
 
+- `main` に push すると GitHub Actions で型チェック・テスト・ビルドを行い GitHub Pages に公開されます（[.github/workflows/deploy.yml](.github/workflows/deploy.yml)）
 - 構成・設計の要点: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 保存形式 `.kani`: [docs/FILE_FORMAT.md](docs/FILE_FORMAT.md)
 - AI エージェント向けガイド: [CLAUDE.md](CLAUDE.md)
