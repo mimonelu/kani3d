@@ -21,7 +21,8 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | フラット表示切替（エディタ上の見た目のみ。全マテリアルの `flatShading`、GLB には影響なし） | `Editor.setFlatShading`、記憶は `store.ts` |
 | カメラのフィット（全体表示・起動/読み込み時の自動フィット） | `Editor.frameAll / fitBox / resetView` |
 | 結合解除 | `Editor.unmergeSelected`（データは `MeshObject.sources`） |
-| 結合（CSG・面数削減） | `core/merge.ts` / テスト `core/merge.test.ts` |
+| 結合（CSG・修復・面数削減） | `core/merge.ts` / テスト `core/merge.test.ts` |
+| 結合結果の検査（穴・内部面・裏返り） | `core/meshCheck.ts`、表示は `Editor.setXray` / `ViewportPane.vue` の HUD |
 | 保存形式・GLB 出力 | `core/io.ts`、型は `core/types.ts` |
 | Undo/Redo | `core/history.ts`（スナップショット方式） |
 | 操作ハンドル（拡縮・回転・持ち上げ・本体ドラッグの計算と描画） | `core/Gizmo.ts` |
@@ -53,12 +54,17 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 - E2E 用に `Editor.debugHandleScreen()` がハンドルの画面座標を返す（`e2e/gizmo.spec.ts`）。
 
 ## 結合（merge.ts）
-1. three-bvh-csg で和集合（色は groups/マテリアルで保持）
+1. three-bvh-csg で和集合（色は groups/マテリアルで保持）→ T 字接合の修復（`fixTJunctions`）→ 平面上の穴埋め（`fillPlanarHoles`）。
+   CSG は同一平面で重なる面（床に並べた底面など）で稀に穴・重複を残すため、分割方式（CDT / Legacy）× 結合順の 4 通りを試し、辺の問題が最少のものを採用
 2. 頂点溶接 → 同色・同一平面・フラット法線の連結領域ごとに境界ループを抽出
 3. 共線頂点を除去（隣接領域も同時に除去できる頂点のみ＝T 字の隙間を作らない）して earcut で再三角形化
-4. 面積チェック等に失敗した領域は元の三角形のまま。結果は bbox 中心を原点にした `MeshData`
+4. 面積チェック等に失敗した領域は元の三角形のまま。さらに出力の辺の健全性が入力より悪化したら、関わる領域を元に戻して繰り返す。結果は bbox 中心を原点にした `MeshData`
+5. 検査（`checkMesh`）: 位置で溶接した辺ごとに「逆向きの 2 面で共有」以外を問題とする。結合直後に通知し、結果は MeshData 参照でキャッシュ（保存しない）。
+   `merge.test.ts` が全プリミティブ × 4 形状 × 4 配置で穴・裏返りゼロを検証（辺だけで接する配置は幾何学的に非多様体になり得るので内部面は少数許容）
 
 ## 注意点（ハマりどころ）
 - `geometry.addGroup(0, Infinity, …)` を CSG に渡すと **無限ループ**。必ず `setSingleColor()` で実数 count を使う。
 - vitest では three-bvh-csg を `server.deps.inline` で ESM 取り込みしている（CJS 版 three の二重読み込み回避）。
 - `BVH: "maxLeafSize" option has been deprecated` 警告は three-bvh-csg 側由来で無害。
+- 表示用の設定（フラット表示・X線）はパレットマテリアルを直接書き換える。GLB 出力は `exportMaterials()` の別マテリアルを使うので影響しない。
+- X線表示のオーバーレイはメッシュの子（name='overlay'）。メッシュを捨てるときは `disposeMesh()` を使う。

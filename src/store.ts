@@ -17,6 +17,8 @@ export const state = reactive<EditorState>({
   dragInfo: '',
   flatShading: true,
   canUnmerge: false,
+  xray: false,
+  selectionIssues: null,
   canUndo: false,
   canRedo: false,
 })
@@ -61,11 +63,11 @@ export function toggleFlatShading(): void {
   }
 }
 
-export function notify(message: string): void {
+export function notify(message: string, ms = 2500): void {
   ui.message = message
   setTimeout(() => {
     if (ui.message === message) ui.message = ''
-  }, 2500)
+  }, ms)
 }
 
 export function newScene(): void {
@@ -98,7 +100,11 @@ export async function exportGlbFile(): Promise<void> {
 
 export function mergeSelection(): void {
   try {
-    if (!editorRef.value?.mergeSelected()) notify('2つ以上選択してください')
+    const r = editorRef.value?.mergeSelected()
+    if (!r) return notify('2つ以上選択してください')
+    const { open, nonManifold, flipped } = r.issues
+    if (open + nonManifold + flipped)
+      notify(`結合結果に問題があります（穴 ${open} / 内部面 ${nonManifold} / 裏返り ${flipped}）。X線表示で確認できます`, 6000)
   } catch (e) {
     notify(`結合失敗: ${(e as Error).message}`)
   }

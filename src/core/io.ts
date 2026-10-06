@@ -1,7 +1,7 @@
 /** 保存形式 (.kani = JSON) の読み書きと GLB 出力 */
 import { Group, Mesh, type Object3D } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import { clampColor } from './palette'
+import { clampColor, exportMaterials } from './palette'
 import { getPrimitive } from './primitives'
 import type { MeshData, SceneDoc, SceneObjectData } from './types'
 
@@ -65,7 +65,7 @@ export async function exportGlb(meshes: Object3D[]): Promise<ArrayBuffer> {
   root.name = 'kani3d'
   for (const src of meshes) {
     if (!(src instanceof Mesh)) continue
-    const m = new Mesh(src.geometry, src.material)
+    const m = new Mesh(src.geometry, exportMaterials())
     m.name = src.name
     src.matrixWorld.decompose(m.position, m.quaternion, m.scale)
     root.add(m)

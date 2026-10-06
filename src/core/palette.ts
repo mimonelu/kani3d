@@ -37,5 +37,13 @@ export function paletteMaterials(): MeshStandardMaterial[] {
   return materials
 }
 
+let exportMats: MeshStandardMaterial[] | null = null
+
+/** GLB 出力用のマテリアル（エディタ表示の設定＝フラット表示・X線の影響を受けない） */
+export function exportMaterials(): MeshStandardMaterial[] {
+  exportMats ??= PALETTE.map((c) => new MeshStandardMaterial({ name: c.name, color: c.hex, roughness: 0.7, metalness: 0 }))
+  return exportMats
+}
+
 export const clampColor = (i: number): number =>
   Number.isInteger(i) && i >= 0 && i < PALETTE.length ? i : DEFAULT_COLOR

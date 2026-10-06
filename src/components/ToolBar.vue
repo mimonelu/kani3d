@@ -47,6 +47,14 @@ function confirmNew() {
       >
         フラット表示
       </button>
+      <button
+        :class="{ active: state.xray }"
+        :aria-pressed="state.xray"
+        title="半透明＋ワイヤーフレームで隠れた面を表示し、結合物の問題のある辺を赤で強調（見た目のみ）"
+        @click="editorRef?.setXray(!state.xray)"
+      >
+        X線表示
+      </button>
     </div>
     <span class="message">{{ ui.message }}</span>
     <button class="help" title="ヘルプ (?)" @click="ui.helpOpen = true">?</button>

@@ -5,13 +5,18 @@
  */
 import {
   AmbientLight,
+  BufferAttribute,
   CanvasTexture,
   Box3,
   BoxHelper,
   Color,
   DirectionalLight,
+  DoubleSide,
+  FrontSide,
   GridHelper,
   HemisphereLight,
+  LineBasicMaterial,
+  LineSegments,
   MOUSE,
   MeshBasicMaterial,
   Matrix4,
@@ -29,7 +34,8 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
-  type BufferGeometry,
+  WireframeGeometry,
+  BufferGeometry,
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GRID, GRID_EXTENT, ROT_STEP, SNAP, snapValue } from './constants'
@@ -37,6 +43,7 @@ import { AXIS_COLOR, Gizmo } from './Gizmo'
 import { History } from './history'
 import { createDoc, exportGlb } from './io'
 import { mergeObjects } from './merge'
+import { checkMesh, type MeshIssues } from './meshCheck'
 import { geometryFromMeshData, setSingleColor, triangleCount } from './meshData'
 import { DEFAULT_COLOR, paletteMaterials } from './palette'
 import { buildPrimitiveGeometry, getPrimitive } from './primitives'
@@ -54,6 +61,10 @@ export interface EditorState {
   currentColor: number
   /** エディタ表示のフラットシェーディング（見た目のみ。GLB の法線には影響しない） */
   flatShading: boolean
+  /** X線表示（半透明＋ワイヤーフレーム＋問題辺の強調） */
+  xray: boolean
+  /** 選択中の結合物の検査結果（合計）。結合物を選択していなければ null */
+  selectionIssues: { open: number; nonManifold: number; flipped: number } | null
   /** 選択物に結合解除できるものがある */
   canUnmerge: boolean
   /** ドラッグ中の寸法・角度など（HUD 表示用） */
@@ -90,6 +101,7 @@ export class Editor {
   /** 左ボタン押下中の状態。clickId は「動かさずに離したら単独選択にする」対象 */
   private pointer: { x: number; y: number; dragging: boolean; clickId: string | null } | null = null
   private dragInfo = ''
+  private xray = false
 
   onChange: (s: EditorState) => void = () => {}
 
@@ -208,6 +220,7 @@ export class Editor {
     const mesh = new Mesh(geometry, paletteMaterials())
     mesh.name = d.kind === 'primitive' ? (getPrimitive(d.primitive)?.label ?? d.primitive) : '結合オブジェクト'
     mesh.userData = ud
+    if (this.xray) addOverlays(mesh)
     mesh.position.fromArray(d.position)
     mesh.quaternion.fromArray(d.quaternion)
     mesh.scale.fromArray(d.scale)
@@ -244,8 +257,7 @@ export class Editor {
   private restore(data: SceneObjectData[], selection: string[] = []): void {
     this.releasePivot()
     for (const m of this.meshes) {
-      m.removeFromParent()
-      m.geometry.dispose()
+      disposeMesh(m)
     }
     for (const d of data) this.objectRoot.add(this.buildMesh(d))
     this.setSelection(selection.filter((id) => data.some((d) => d.id === id)))
@@ -391,8 +403,7 @@ export class Editor {
     this.releasePivot()
     for (const id of this.selection) {
       const m = this.meshById(id)
-      m?.removeFromParent()
-      m?.geometry.dispose()
+      if (m) disposeMesh(m)
     }
     this.setSelection([])
     this.commit()
@@ -428,6 +439,23 @@ export class Editor {
     this.commit()
   }
 
+  /** X線表示: 半透明・両面＋ワイヤーフレーム、結合物の問題辺を赤で強調（見た目のみ） */
+  setXray(on: boolean): void {
+    this.xray = on
+    for (const m of paletteMaterials()) {
+      m.transparent = on
+      m.opacity = on ? 0.35 : 1
+      m.depthWrite = !on
+      m.side = on ? DoubleSide : FrontSide
+      m.needsUpdate = true
+    }
+    for (const mesh of this.meshes) {
+      removeOverlays(mesh)
+      if (on) addOverlays(mesh)
+    }
+    this.emit()
+  }
+
   /** エディタ表示のシェーディング切替（全オブジェクト共通・見た目のみ） */
   setFlatShading(flat: boolean): void {
     for (const m of paletteMaterials()) {
@@ -460,15 +488,14 @@ export class Editor {
   }
 
   /** 選択物を CSG 和集合で1つのメッシュに結合 */
-  mergeSelected(): string | null {
+  mergeSelected(): { id: string; issues: MeshIssues } | null {
     if (this.selection.length < 2) return null
     this.releasePivot()
     const sel = this.selection.map((id) => this.meshById(id)!)
     for (const m of sel) m.updateMatrixWorld(true)
     const { mesh, center } = mergeObjects(sel.map((m) => ({ geometry: m.geometry, matrixWorld: m.matrixWorld })))
     for (const m of sel) {
-      m.removeFromParent()
-      m.geometry.dispose()
+      disposeMesh(m)
     }
     // 結合元は結合後メッシュ（位置 center・回転なし・等倍）のローカル座標で保持
     const sources = sel.map((m) => {
@@ -490,7 +517,7 @@ export class Editor {
     )
     this.setSelection([id])
     this.commit()
-    return id
+    return { id, issues: issuesOf(mesh) }
   }
 
   /** 選択中の結合オブジェクトを結合前に戻す（結合後の移動・回転・拡縮は結合元に引き継ぐ） */
@@ -524,8 +551,7 @@ export class Editor {
         this.objectRoot.add(this.buildMesh(d))
         restored.push(d.id)
       }
-      m.removeFromParent()
-      m.geometry.dispose()
+      disposeMesh(m)
     }
     if (!restored.length) return []
     this.setSelection([...keep, ...restored])
@@ -711,6 +737,19 @@ export class Editor {
       })(),
       dragInfo: this.dragInfo,
       flatShading: paletteMaterials()[0].flatShading,
+      xray: this.xray,
+      selectionIssues: (() => {
+        const merged = sel.map((m) => m.userData as ObjUserData).filter((u) => u.kind === 'mesh')
+        if (!merged.length) return null
+        const total = { open: 0, nonManifold: 0, flipped: 0 }
+        for (const u of merged) {
+          const i = issuesOf(u.mesh)
+          total.open += i.open
+          total.nonManifold += i.nonManifold
+          total.flipped += i.flipped
+        }
+        return total
+      })(),
       canUnmerge: sel.some((m) => (m.userData as ObjUserData).kind === 'mesh' && !!(m.userData as { sources?: unknown }).sources),
       canUndo: this.history.canUndo,
       canRedo: this.history.canRedo,
@@ -752,4 +791,48 @@ function recolor(list: SceneObjectData[], color: number): SceneObjectData[] {
           ...(d.sources && { sources: recolor(d.sources, color) }),
         },
   )
+}
+
+// ---------------------------------------------------------------- 検査・X線表示
+
+/** 結合物の検査結果（MeshData は不変なので参照でキャッシュ） */
+const issueCache = new WeakMap<MeshData, MeshIssues>()
+function issuesOf(m: MeshData): MeshIssues {
+  let r = issueCache.get(m)
+  if (!r) issueCache.set(m, (r = checkMesh(m)))
+  return r
+}
+
+const wireMaterial = new LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.25, depthWrite: false })
+const issueMaterial = new LineBasicMaterial({ color: '#ff3b30', depthTest: false, transparent: true })
+
+function addOverlays(mesh: Mesh): void {
+  const wire = new LineSegments(new WireframeGeometry(mesh.geometry), wireMaterial)
+  wire.name = 'overlay'
+  wire.raycast = () => {}
+  mesh.add(wire)
+  const ud = mesh.userData as ObjUserData
+  if (ud.kind !== 'mesh') return
+  const segs = issuesOf(ud.mesh).segments
+  if (!segs.length) return
+  const g = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array(segs), 3))
+  const issues = new LineSegments(g, issueMaterial)
+  issues.name = 'overlay'
+  issues.renderOrder = 999
+  issues.raycast = () => {}
+  mesh.add(issues)
+}
+
+function removeOverlays(mesh: Mesh): void {
+  for (const c of [...mesh.children]) {
+    if (c.name !== 'overlay') continue
+    c.removeFromParent()
+    ;(c as LineSegments).geometry.dispose()
+  }
+}
+
+function disposeMesh(m: Mesh): void {
+  removeOverlays(m)
+  m.removeFromParent()
+  m.geometry.dispose()
 }

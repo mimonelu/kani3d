@@ -171,3 +171,36 @@ test('保存→読み込み、GLB 出力', async ({ page }) => {
   const buf = await readFile(await glb.path())
   expect(buf.subarray(0, 4).toString()).toBe('glTF')
 })
+
+test('結合物の検査結果表示と X線表示（GLB には影響しない）', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.addPrimitive('cube')
+    k.setSelection([])
+    k.addPrimitive('cylinder')
+    k.nudge(1, 0, 1)
+    k.selectAll()
+  })
+  await page.keyboard.press('Control+g')
+  await expect(page.locator('.hud')).toContainText('検査: 問題なし')
+
+  const xray = page.getByRole('button', { name: 'X線表示' })
+  await xray.click()
+  await expect(xray).toHaveClass(/active/)
+  const view = await page.evaluate(() => {
+    const m = (window as any).__kani.scene.getObjectByName('結合オブジェクト')
+    return { transparent: m.material[0].transparent, overlays: m.children.filter((c: any) => c.name === 'overlay').length }
+  })
+  expect(view).toEqual({ transparent: true, overlays: 1 })
+
+  const glb = await page.evaluate(async () => {
+    const buf: ArrayBuffer = await (window as any).__kani.exportGlb()
+    const len = new DataView(buf).getUint32(12, true)
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, len)))
+  })
+  expect(glb.materials.every((m: any) => !m.alphaMode || m.alphaMode === 'OPAQUE')).toBe(true)
+  expect(glb.meshes).toHaveLength(1)
+
+  await xray.click()
+  expect(await page.evaluate(() => (window as any).__kani.scene.getObjectByName('結合オブジェクト').children.length)).toBe(0)
+})

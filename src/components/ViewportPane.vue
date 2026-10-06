@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Editor } from '../core/Editor'
 import { bindEditor, editorRef, state } from '../store'
 
 const host = ref<HTMLDivElement>()
 const cm = (m: number) => +(m * 100).toFixed(1)
+const issues = computed(() => {
+  const i = state.selectionIssues
+  if (!i) return null
+  const total = i.open + i.nonManifold + i.flipped
+  return { total, text: total ? `検査: 穴 ${i.open} / 内部面 ${i.nonManifold} / 裏返り ${i.flipped}` : '検査: 問題なし' }
+})
 
 onMounted(() => {
   const editor = new Editor(host.value!)
@@ -30,6 +36,7 @@ function onDrop(e: DragEvent) {
       <span>三角形 {{ state.triangles }}</span>
       <span v-if="state.selection.length">選択 {{ state.selection.length }}（{{ state.selectionTriangles }} 三角形）</span>
       <span v-if="state.selectionSize" class="size">{{ state.selectionSize.map(cm).join(' × ') }} cm</span>
+      <span v-if="issues" :class="issues.total ? 'issue-bad' : 'issue-ok'">{{ issues.text }}</span>
     </div>
     <div v-if="state.dragInfo" class="drag-info">{{ state.dragInfo }}</div>
   </div>
@@ -60,6 +67,12 @@ function onDrop(e: DragEvent) {
   display: flex;
   gap: 12px;
   color: var(--text-dim);
+}
+.issue-ok {
+  color: #4cd964;
+}
+.issue-bad {
+  color: #ff5f57;
 }
 .drag-info {
   bottom: 12px;
