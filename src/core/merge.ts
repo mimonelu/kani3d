@@ -27,11 +27,23 @@ function csgUnion(inputs: MergeInput[], cdt: boolean): Soup {
   evaluator.attributes = ['position', 'normal']
   ;(evaluator as unknown as { useCDTClipping: boolean }).useCDTClipping = cdt
 
+  // 全入力の回転が 90° 単位のときだけワールドに焼き込む（混在させると座標系の精度差で逆に不安定になる）
+  const bake = inputs.every((i) => isAxisAligned(i.matrixWorld))
   const brushes = inputs.map(({ geometry, matrixWorld }) => {
     const g = geometry.clone()
     if (g.groups.length === 0) setSingleColor(g, 0)
-    const b = new Brush(g, mats)
-    matrixWorld.decompose(b.position, b.quaternion, b.scale)
+    let b: Brush
+    if (bake) {
+      // 回転が 90° 単位なら頂点は格子上に来るので、ワールドに焼き込んで格子ほぼ上の座標を揃える。
+      // （float32 頂点や拡大率 1.99999997 などの誤差で、ぴったり接する面が「ほぼ一致」になり CSG が内部面を残すのを防ぐ）
+      g.applyMatrix4(matrixWorld)
+      snapNearGrid(g)
+      b = new Brush(g, mats)
+    } else {
+      // 斜めの回転は焼き込むと float32 化で精度が落ちるので行列のまま
+      b = new Brush(g, mats)
+      matrixWorld.decompose(b.position, b.quaternion, b.scale)
+    }
     b.updateMatrixWorld()
     return b
   })
@@ -43,6 +55,28 @@ function csgUnion(inputs: MergeInput[], cdt: boolean): Soup {
   const resultMats = (Array.isArray(result.material) ? result.material : [result.material]) as Material[]
   const toColor = (mi: number | undefined) => Math.max(0, mats.indexOf(resultMats[mi ?? 0] as never))
   return soupFromGeometry(g, toColor)
+}
+
+/** 回転が 90° 単位（行列の回転・拡縮部分の各成分が 0 か非ゼロのみの並び）か */
+function isAxisAligned(m: Matrix4): boolean {
+  const e = m.elements
+  for (let c = 0; c < 3; c++) {
+    let nonZero = 0
+    for (let r = 0; r < 3; r++) if (Math.abs(e[c * 4 + r]) > 1e-9) nonZero++
+    if (nonZero !== 1) return false
+  }
+  return true
+}
+
+/** 0.1mm 格子から 1e-7 m 以内の座標を格子上に吸着させる（焼き込み済みジオメトリ用） */
+function snapNearGrid(g: BufferGeometry, grid = 1e-4, tol = 1e-7): void {
+  const pos = g.getAttribute('position')
+  const a = pos.array as Float32Array
+  for (let i = 0; i < a.length; i++) {
+    const n = Math.round(a[i] / grid) * grid
+    if (Math.abs(a[i] - n) < tol) a[i] = n
+  }
+  pos.needsUpdate = true
 }
 
 /** 三角形スープ。tris は頂点インデックスではなく座標を直接持つ */
@@ -412,8 +446,11 @@ function connectedRegions(ids: number[], tris: { v: number[] }[]): number[][] {
 type V3Tri = [Vector3, Vector3, Vector3]
 
 function isCollinear(p: Vector3, c: Vector3, q: Vector3): boolean {
-  const cr = new Vector3().subVectors(c, p).cross(new Vector3().subVectors(q, c)).length()
-  return cr <= 1e-9 * Math.max(p.distanceTo(c) * c.distanceTo(q), 1e-12)
+  // c が直線 pq から 0.5µm 未満なら共線（float32 頂点の誤差 1e-9 程度を吸収する）
+  const pq = new Vector3().subVectors(q, p)
+  const len = pq.length()
+  if (len < 1e-12) return true
+  return new Vector3().subVectors(c, p).cross(pq).length() / len < 5e-7
 }
 
 function regionArea(region: number[], tris: { v: number[] }[], verts: Vector3[]): number {
