@@ -21,11 +21,11 @@ export interface MergeResult {
 }
 
 /** 入力群の和集合を取り、ワールド座標の三角形スープ（色付き）を返す */
-function csgUnion(inputs: MergeInput[]): Soup {
+function csgUnion(inputs: MergeInput[], cdt: boolean): Soup {
   const mats = paletteMaterials()
   const evaluator = new Evaluator()
   evaluator.attributes = ['position', 'normal']
-  ;(evaluator as unknown as { useCDTClipping: boolean }).useCDTClipping = true
+  ;(evaluator as unknown as { useCDTClipping: boolean }).useCDTClipping = cdt
 
   const brushes = inputs.map(({ geometry, matrixWorld }) => {
     const g = geometry.clone()
@@ -181,30 +181,160 @@ export function simplifySoup(soup: Soup): Soup {
   }
 
   // 3) 再三角形化。失敗した領域の頂点は除去不可にしてやり直す
-  for (let changed = true; changed; ) {
-    changed = false
-    for (const r of regions) {
-      if (!r.loops) continue
-      const n = tris[r.tris[0]].n
-      r.result = triangulateLoops(r.loops, (v) => !blocked[v], n, verts, regionArea(r.tris, tris, verts))
-      if (!r.result) {
-        r.loops = null
-        markBlocked(r)
-        changed = true
+  const triangulateAll = () => {
+    for (let changed = true; changed; ) {
+      changed = false
+      for (const r of regions) {
+        if (!r.loops) continue
+        const n = tris[r.tris[0]].n
+        r.result = triangulateLoops(r.loops, (v) => !blocked[v], n, verts, regionArea(r.tris, tris, verts))
+        if (!r.result) {
+          r.loops = null
+          markBlocked(r)
+          changed = true
+        }
       }
     }
   }
 
-  for (const r of regions) {
-    const t0 = tris[r.tris[0]]
-    if (r.result) for (const [a, b, c] of r.result) emit(a, b, c, t0.n, t0.n, t0.n, t0.color)
-    else r.tris.forEach((i) => emitOriginal(tris[i]))
+  // 4) 出力し、入力より辺の健全性が悪化していたら（極細三角形まわりの重複など）
+  //    その辺に関わる領域を元の三角形に戻して繰り返す
+  const rawIssues = soupIssueEdges(soup)
+  for (let iter = 0; ; iter++) {
+    triangulateAll()
+    out.pos.length = out.nor.length = out.color.length = 0
+    const owner: number[] = []
+    regions.forEach((r, ri) => {
+      const t0 = tris[r.tris[0]]
+      if (r.result) {
+        for (const [a, b, c] of r.result) {
+          emit(a, b, c, t0.n, t0.n, t0.n, t0.color)
+          owner.push(ri)
+        }
+      } else {
+        r.tris.forEach((i) => {
+          emitOriginal(tris[i])
+          owner.push(-1)
+        })
+      }
+    })
+    tris.forEach((t, i) => {
+      if (regionOf[i] < 0) {
+        emitOriginal(t)
+        owner.push(-1)
+      }
+    })
+    if (iter >= 10) break
+    const bad = soupIssueEdges(out)
+    for (const k of rawIssues) bad.delete(k)
+    if (!bad.size) break
+    let reverted = false
+    owner.forEach((ri, t) => {
+      const r = regions[ri]
+      if (ri < 0 || !r.loops || !triEdgeKeys(out.pos, t).some((k) => bad.has(k))) return
+      r.loops = null
+      r.result = null
+      markBlocked(r)
+      reverted = true
+    })
+    if (!reverted) break
   }
-  tris.forEach((t, i) => {
-    if (regionOf[i] < 0) emitOriginal(t)
-  })
   return out
 }
+
+// ---------------------------------------------------------------- 辺の健全性・T 字接合
+
+const pkey = (p: number[], o: number) =>
+  `${Math.round(p[o] / EPS_POS)},${Math.round(p[o + 1] / EPS_POS)},${Math.round(p[o + 2] / EPS_POS)}`
+const ekey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+
+function triEdgeKeys(pos: number[], t: number): string[] {
+  const k = [pkey(pos, t * 9), pkey(pos, t * 9 + 3), pkey(pos, t * 9 + 6)]
+  return [ekey(k[0], k[1]), ekey(k[1], k[2]), ekey(k[2], k[0])]
+}
+
+/** 2 枚の面が逆向きで共有していない辺（穴・非多様体・裏返り）のキー集合 */
+function soupIssueEdges(soup: Soup): Set<string> {
+  const count = new Map<string, number>() // 正方向 +1 / 逆方向 +1000
+  for (let t = 0; t < soup.color.length; t++) {
+    const k = [pkey(soup.pos, t * 9), pkey(soup.pos, t * 9 + 3), pkey(soup.pos, t * 9 + 6)]
+    if (k[0] === k[1] || k[1] === k[2] || k[0] === k[2]) continue
+    for (let i = 0; i < 3; i++) {
+      const a = k[i], b = k[(i + 1) % 3]
+      const key = ekey(a, b)
+      count.set(key, (count.get(key) ?? 0) + (a < b ? 1 : 1000))
+    }
+  }
+  const bad = new Set<string>()
+  for (const [k, c] of count) if (c !== 1001) bad.add(k)
+  return bad
+}
+
+/**
+ * T 字接合の修復: 片側にしか無い辺の途中に、別の開いた辺の端点が乗っていたら三角形を分割する。
+ * CSG の出力は見た目は閉じていても辺の途中に頂点が乗る（隙間ゼロの穴）ことがある。
+ */
+export function fixTJunctions(soup: Soup): Soup {
+  let cur = soup
+  for (let iter = 0; iter < 5; iter++) {
+    const bad = soupIssueEdges(cur)
+    if (!bad.size) break
+    // 開いた辺の端点
+    const pts = new Map<string, Vector3>()
+    for (const e of bad) for (const k of e.split('|')) pts.set(k, new Vector3(...k.split(',').map((v) => Number(v) * EPS_POS)))
+    const out: Soup = { pos: [], nor: [], color: [] }
+    let changed = false
+    for (let t = 0; t < cur.color.length; t++) {
+      const o = t * 9
+      const P = [0, 1, 2].map((i) => new Vector3(cur.pos[o + i * 3], cur.pos[o + i * 3 + 1], cur.pos[o + i * 3 + 2]))
+      const N = [0, 1, 2].map((i) => new Vector3(cur.nor[o + i * 3], cur.nor[o + i * 3 + 1], cur.nor[o + i * 3 + 2]))
+      const keys = triEdgeKeys(cur.pos, t)
+      // 分割点の入った辺を1本だけ処理（残りは次の反復で）
+      let split: { i: number; inner: { t: number; p: Vector3 }[] } | null = null
+      for (let i = 0; i < 3 && !split; i++) {
+        if (!bad.has(keys[i])) continue
+        const a = P[i], b = P[(i + 1) % 3]
+        const ab = b.clone().sub(a)
+        const len2 = ab.lengthSq()
+        const inner: { t: number; p: Vector3 }[] = []
+        for (const p of pts.values()) {
+          const u = p.clone().sub(a).dot(ab) / len2
+          if (u <= 1e-6 || u >= 1 - 1e-6) continue
+          if (a.clone().addScaledVector(ab, u).distanceTo(p) > EPS_POS) continue
+          inner.push({ t: u, p })
+        }
+        if (inner.length) split = { i, inner: inner.sort((x, y) => x.t - y.t) }
+      }
+      if (!split) {
+        for (let k = 0; k < 9; k++) {
+          out.pos.push(cur.pos[o + k])
+          out.nor.push(cur.nor[o + k])
+        }
+        out.color.push(cur.color[t])
+        continue
+      }
+      changed = true
+      const { i } = split
+      const ia = i, ib = (i + 1) % 3, ic = (i + 2) % 3
+      const chain = [
+        { p: P[ia], n: N[ia] },
+        ...split.inner.map(({ t: u, p }) => ({ p, n: N[ia].clone().lerp(N[ib], u).normalize() })),
+        { p: P[ib], n: N[ib] },
+      ]
+      for (let k = 0; k < chain.length - 1; k++) {
+        for (const v of [chain[k], chain[k + 1], { p: P[ic], n: N[ic] }]) {
+          out.pos.push(v.p.x, v.p.y, v.p.z)
+          out.nor.push(v.n.x, v.n.y, v.n.z)
+        }
+        out.color.push(cur.color[t])
+      }
+    }
+    cur = out
+    if (!changed) break
+  }
+  return cur
+}
+
 function connectedRegions(ids: number[], tris: { v: number[] }[]): number[][] {
   const edgeOwner = new Map<string, number[]>()
   const ek = (a: number, b: number) => (a < b ? `${a}_${b}` : `${b}_${a}`)
@@ -340,6 +470,82 @@ function triangulateLoops(
   return result
 }
 
+/**
+ * 平面上の穴を塞ぐ。CSG は同一平面で重なる面（床に並べた底面など）の一部を落とすことがあるため、
+ * 開いた辺が作る閉ループが平面なら三角形化して埋める（色・法線は隣接面から）。
+ */
+export function fillPlanarHoles(soup: Soup): Soup {
+  const bad = soupIssueEdges(soup)
+  if (!bad.size) return soup
+  // 開いた有向辺 a→b（逆向き b→a が存在しないもの）と、その辺を持つ三角形
+  const directed = new Map<string, { b: string; t: number }>()
+  const pts = new Map<string, Vector3>()
+  const count = new Map<string, number>()
+  for (let t = 0; t < soup.color.length; t++) {
+    const k = [pkey(soup.pos, t * 9), pkey(soup.pos, t * 9 + 3), pkey(soup.pos, t * 9 + 6)]
+    for (let i = 0; i < 3; i++) {
+      const a = k[i], b = k[(i + 1) % 3]
+      if (!bad.has(ekey(a, b))) continue
+      count.set(ekey(a, b), (count.get(ekey(a, b)) ?? 0) + 1)
+      directed.set(`${a}>${b}`, { b, t })
+      pts.set(a, new Vector3(soup.pos[t * 9 + i * 3], soup.pos[t * 9 + i * 3 + 1], soup.pos[t * 9 + i * 3 + 2]))
+    }
+  }
+  // 穴の縁は「1 回だけ使われた辺」。塞ぐ面は逆向き（b→a）にたどる
+  const next = new Map<string, { to: string; t: number }>()
+  const branch = new Set<string>()
+  for (const [k, v] of directed) {
+    const a = k.slice(0, k.indexOf('>'))
+    if (count.get(ekey(a, v.b)) !== 1) continue
+    if (next.has(v.b)) branch.add(v.b) // 分岐する縁（重なり等）は塞がない
+    next.set(v.b, { to: a, t: v.t })
+  }
+  const out: Soup = { pos: [...soup.pos], nor: [...soup.nor], color: [...soup.color] }
+  const visited = new Set<string>()
+  for (const start of next.keys()) {
+    if (visited.has(start)) continue
+    const loop: string[] = []
+    let v = start
+    let color = -1
+    while (!visited.has(v)) {
+      visited.add(v)
+      loop.push(v)
+      const e = next.get(v)
+      if (!e) break
+      if (color < 0) color = soup.color[e.t]
+      v = e.to
+    }
+    if (v !== start || loop.length < 3 || loop.some((k) => branch.has(k))) continue
+    const P = loop.map((k) => pts.get(k)!)
+    // ニューエル法で平面法線
+    const n = new Vector3()
+    for (let i = 0; i < P.length; i++) {
+      const a = P[i], b = P[(i + 1) % P.length]
+      n.x += (a.y - b.y) * (a.z + b.z)
+      n.y += (a.z - b.z) * (a.x + b.x)
+      n.z += (a.x - b.x) * (a.y + b.y)
+    }
+    if (n.lengthSq() < 1e-16) continue
+    n.normalize()
+    const d = n.dot(P[0])
+    if (P.some((p) => Math.abs(n.dot(p) - d) > EPS_POS * 2)) continue // 非平面は塞がない
+    const u = new Vector3(Math.abs(n.x) < 0.9 ? 1 : 0, Math.abs(n.x) < 0.9 ? 0 : 1, 0).cross(n).normalize()
+    const w = new Vector3().crossVectors(n, u)
+    const faces = ShapeUtils.triangulateShape(
+      P.map((p) => new Vector2(p.dot(u), p.dot(w))),
+      [],
+    )
+    for (const [i, j, k] of faces) {
+      let a = P[i], b = P[j], c = P[k]
+      if (new Vector3().subVectors(b, a).cross(new Vector3().subVectors(c, a)).dot(n) < 0) [b, c] = [c, b]
+      out.pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z)
+      for (let q = 0; q < 3; q++) out.nor.push(n.x, n.y, n.z)
+      out.color.push(Math.max(color, 0))
+    }
+  }
+  return out
+}
+
 // ---------------------------------------------------------------- 出力
 
 /** スープ → インデックス付き MeshData（位置+法線で溶接、色ごとに group 化） */
@@ -376,9 +582,20 @@ function soupToMeshData(soup: Soup, center: Vector3): MeshData {
   return { positions, normals, indices, groups }
 }
 
-export function mergeObjects(inputs: MergeInput[]): MergeResult {
+export function mergeObjects(inputs: MergeInput[], opts: { simplify?: boolean } = {}): MergeResult {
   if (inputs.length === 0) throw new Error('nothing to merge')
-  const soup = simplifySoup(csgUnion(inputs))
+  // CSG は同一平面の面が重なる配置で稀に穴や重複面を残すので、
+  // 分割方式・結合順を変えて試し、辺の問題が最も少ない結果を採用する
+  let raw: Soup | null = null
+  let best = Infinity
+  for (const [cdt, reverse] of [[true, false], [true, true], [false, false], [false, true]] as const) {
+    const soup = fillPlanarHoles(fixTJunctions(csgUnion(reverse ? [...inputs].reverse() : inputs, cdt)))
+    const issues = soupIssueEdges(soup).size
+    if (issues < best) [raw, best] = [soup, issues]
+    if (issues === 0) break
+  }
+  raw = raw!
+  const soup = opts.simplify === false ? raw : simplifySoup(raw)
   const min = new Vector3(Infinity, Infinity, Infinity)
   const max = new Vector3(-Infinity, -Infinity, -Infinity)
   for (let i = 0; i < soup.pos.length; i += 3) {

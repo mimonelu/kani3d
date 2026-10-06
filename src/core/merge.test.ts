@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Matrix4, Quaternion, Vector3 } from 'three'
 import { mergeObjects } from './merge'
+import { checkMesh } from './meshCheck'
 import { geometryFromMeshData, setSingleColor } from './meshData'
-import { buildPrimitiveGeometry } from './primitives'
+import { PRIMITIVES, buildPrimitiveGeometry } from './primitives'
 
 const prim = (id: string, color: number, pos: [number, number, number], rotY = 0) => {
   const geometry = setSingleColor(buildPrimitiveGeometry(id), color)
@@ -61,5 +62,34 @@ describe('mergeObjects', () => {
     const m = new Matrix4().makeTranslation(first.center.x, first.center.y, first.center.z)
     const { mesh } = mergeObjects([{ geometry: g, matrixWorld: m }, prim('cube', 0, [0.2, 0.05, 0])])
     expect(tris(mesh)).toBe(12)
+  })
+
+  it('結合結果に穴・裏返りがない（全プリミティブ × 4 種 × 4 配置）', () => {
+    const report: string[] = []
+    let nonManifold = 0
+    for (const a of PRIMITIVES) {
+      for (const b of ['cube', 'sphere', 'cylinder', 'stairs']) {
+        for (const [pos, rot] of [
+          [[0.04, 0.07, 0.03], Math.PI / 4],
+          [[0.05, 0.05, 0], 0], // 底面・天面が同一平面
+          [[0.02, 0.1, -0.03], Math.PI / 2],
+          [[0.03, 0.05, 0.02], Math.PI / 4], // 底面が同一平面で斜め
+        ] as const) {
+          const { mesh } = mergeObjects([prim(a.id, 0, [0, 0.05, 0]), prim(b, 1, [...pos], rot)])
+          const r = checkMesh(mesh)
+          if (r.open || r.flipped) report.push(`${a.id}+${b}@${pos}: open ${r.open} flip ${r.flipped}`)
+          if (r.nonManifold) nonManifold++
+        }
+      }
+    }
+    expect(report).toEqual([])
+    // 辺だけで接する配置（パイプの内壁など）は幾何学的に非多様体になり得る。336 中ごく少数のみ
+    expect(nonManifold).toBeLessThanOrEqual(3)
+  })
+
+  it('checkMesh は穴を検出する', () => {
+    const { mesh } = mergeObjects([prim('cube', 0, [0, 0.05, 0]), prim('cube', 0, [0.1, 0.05, 0])])
+    const r = checkMesh({ positions: mesh.positions, indices: mesh.indices.slice(3) })
+    expect(r.open).toBe(3)
   })
 })
