@@ -543,4 +543,8 @@ test('選択中に追加: カメラの向きで付ける面を選び、横なら
   r = await place([1, 6, 2])
   expect(r.q).toEqual([0, 0, 0, 1])
   expect(r.min[1]).toBeCloseTo(1, 4)
+  // 見上げ 45° 以上（真下から）: 下面に付け、上下反転
+  r = await place([0.5, -6, 1])
+  expect(r.q).toEqual([1, 0, 0, 0])
+  expect(r.max[1]).toBeCloseTo(0, 4)
 })

@@ -494,8 +494,8 @@ export class Editor {
     })
     const sel = this.selection.map((i) => this.meshById(i)!).filter(Boolean)
     if (!at && sel.length) {
-      // 選択物の、カメラから見て一番こちらを向いている面の外側に置く（見下ろし 45° 以上なら上面）。
-      // 横の面に付けるときは、オブジェクトの上方向をその面の外向きに合わせて回転する
+      // 選択物の、カメラから見て一番こちらを向いている面の外側に置く（見下ろし 45° 以上なら上面、見上げ 45° 以上なら下面）。
+      // 上面以外に付けるときは、オブジェクトの上方向をその面の外向きに合わせて回転する
       const box = new Box3()
       for (const m of sel) box.expandByObject(m, true)
       const face = this.facingFace(box)
@@ -507,9 +507,10 @@ export class Editor {
       const mb = new Box3().setFromObject(mesh, true)
       const c = box.getCenter(new Vector3())
       const mc = mb.getCenter(new Vector3())
-      // 面に接する位置: 法線方向は面にぴったり、横方向は面の中央、高さは（上面以外）選択物の底面に揃える
+      // 面に接する位置: 法線方向は面にぴったり、横方向は面の中央、高さは（横の面のとき）選択物の底面に揃える
       const target = new Vector3(c.x - mc.x, box.min.y - mb.min.y, c.z - mc.z)
       if (face === '+y') target.y = box.max.y - mb.min.y
+      else if (face === '-y') target.y = box.min.y - mb.max.y
       else if (face === '+x') target.x = box.max.x - mb.min.x
       else if (face === '-x') target.x = box.min.x - mb.max.x
       else if (face === '+z') target.z = box.max.z - mb.min.z
@@ -535,11 +536,12 @@ export class Editor {
     return id
   }
 
-  /** 箱の、カメラから見て一番こちらを向いている面（見下ろし 45° 以上なら上面。下面は選ばない） */
+  /** 箱の、カメラから見て一番こちらを向いている面（見下ろし 45° 以上なら上面、見上げ 45° 以上なら下面） */
   private facingFace(box: Box3): Face {
     const toCam = this.camera.position.clone().sub(box.getCenter(new Vector3()))
     const elevation = Math.asin(Math.max(-1, Math.min(1, toCam.y / (toCam.length() || 1))))
     if (elevation >= Math.PI / 4) return '+y'
+    if (elevation <= -Math.PI / 4) return '-y'
     if (Math.abs(toCam.x) > Math.abs(toCam.z)) return toCam.x > 0 ? '+x' : '-x'
     return toCam.z > 0 ? '+z' : '-z'
   }
@@ -1493,9 +1495,10 @@ function gridLines(extent: number, step: number, color: string, skipEvery?: numb
   return lines
 }
 
-type Face = '+y' | '+x' | '-x' | '+z' | '-z'
-/** 横の面に付けるときの回転（オブジェクトの +Y を面の外向きへ） */
+type Face = '+y' | '-y' | '+x' | '-x' | '+z' | '-z'
+/** 上面以外に付けるときの回転（オブジェクトの +Y を面の外向きへ） */
 const FACE_ROTATION: Record<Exclude<Face, '+y'>, [Vector3, number]> = {
+  '-y': [new Vector3(1, 0, 0), Math.PI],
   '+z': [new Vector3(1, 0, 0), Math.PI / 2],
   '-z': [new Vector3(1, 0, 0), -Math.PI / 2],
   '+x': [new Vector3(0, 0, 1), -Math.PI / 2],

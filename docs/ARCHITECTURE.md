@@ -30,7 +30,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | 保存形式・GLB 出力 | `core/io.ts`、型は `core/types.ts` |
 | Undo/Redo | `core/history.ts`（スナップショット方式） |
 | 操作ハンドル（拡縮・回転・持ち上げ・本体ドラッグの計算と描画） | `core/Gizmo.ts` |
-| プリミティブ追加位置（未選択: 画面中央の床 / 選択中: カメラ側の面に接して外向きに回転、見下ろし 45° 以上は上面） | `Editor.addPrimitive / facingFace` |
+| プリミティブ追加位置（未選択: 画面中央の床 / 選択中: カメラ側の面に接して外向きに回転、見下ろし 45° 以上は上面・見上げ 45° 以上は下面） | `Editor.addPrimitive / facingFace` |
 | 移動中のガイド（接地点の足跡・縦線、接触面の強調と、相手・掴んでいる側それぞれの面の中心線。外枠ベース・見た目のみ） | `core/MoveGuides.ts`（`Editor.startDrag` で開始、本体移動・持ち上げのときだけ） |
 | マウス操作の振り分け・選択・スナップ・編集コマンド | `core/Editor.ts` |
 | キーボードショートカット | `App.vue` の `onKey` と `components/HelpDialog.vue` |
