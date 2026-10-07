@@ -44,6 +44,8 @@ const HOVER_COLOR = '#ffb020'
 /** ハンドルの画面上サイズ (px) */
 const HANDLE_PX = 16
 const ARC_SWEEP = Math.PI / 3
+/** ハンドルを並べる枠の画面上の最小サイズ (px) */
+const MIN_BOX_PX = 100
 
 const overlay = (color: string) =>
   new MeshBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true })
@@ -76,6 +78,8 @@ export class Gizmo {
   private target: Object3D | null = null
   /** 対象ローカル座標（スケール前）のバウンディングボックス */
   private readonly box = new Box3()
+  /** ハンドル配置用（box を画面上の最小サイズまで広げたもの） */
+  private readonly display = new Box3()
   private allowScale = true
   private readonly handles: Handle[] = []
   private hovered: Handle | null = null
@@ -171,18 +175,33 @@ export class Gizmo {
     return (2 * dist * Math.tan((this.camera.fov * Math.PI) / 360)) / this.viewportHeight
   }
 
-  private boxPoint(at: Vector3): Vector3 {
-    const { min, max } = this.box
+  private boxPoint(at: Vector3, box: Box3 = this.box): Vector3 {
+    const { min, max } = box
     const pick = (a: number, lo: number, hi: number) => (a < 0 ? lo : a > 0 ? hi : (lo + hi) / 2)
     return new Vector3(pick(at.x, min.x, max.x), pick(at.y, min.y, max.y), pick(at.z, min.z, max.z))
   }
 
   /** 対象のワールド AABB（ローカル箱の8隅から） */
-  private worldBox(): Box3 {
+  private worldBox(box: Box3 = this.box): Box3 {
     const b = new Box3()
     for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1])
-      b.expandByPoint(this.target!.localToWorld(this.boxPoint(new Vector3(x, y, z))))
+      b.expandByPoint(this.target!.localToWorld(this.boxPoint(new Vector3(x, y, z), box)))
     return b
+  }
+
+  /**
+   * ハンドルを並べる表示用の枠。画面上で MIN_BOX_PX 未満の軸は中心から広げる
+   * （小さな物体でもズームせずにハンドルを掴めるように）。拡縮・回転の計算は実際の this.box を使う
+   */
+  private updateDisplayBox(): void {
+    const t = this.target!
+    const ws = t.getWorldScale(new Vector3())
+    const center = this.box.getCenter(new Vector3())
+    const wpp = this.worldPerPixel(t.localToWorld(center.clone()))
+    const size = this.box.getSize(new Vector3())
+    const half = new Vector3()
+    for (const a of AXES) half[a] = Math.max(size[a] / 2, (MIN_BOX_PX * wpp) / 2 / Math.max(Math.abs(ws[a]), 1e-9))
+    this.display.set(center.clone().sub(half), center.clone().add(half))
   }
 
   update(): void {
@@ -190,7 +209,8 @@ export class Gizmo {
     if (!t) return
     t.updateMatrixWorld(true)
     const wq = t.getWorldQuaternion(new Quaternion())
-    const wbox = this.worldBox()
+    this.updateDisplayBox()
+    const wbox = this.worldBox(this.display)
     const center = wbox.getCenter(new Vector3())
     const px = this.worldPerPixel(center) * HANDLE_PX
 
@@ -198,12 +218,12 @@ export class Gizmo {
       const { info, group } = h
       if (info.kind === 'scale') {
         group.visible = this.allowScale && !(this.drag && this.drag.kind !== 'scale')
-        group.position.copy(t.localToWorld(this.boxPoint(info.at)))
+        group.position.copy(t.localToWorld(this.boxPoint(info.at, this.display)))
         group.quaternion.copy(wq)
         group.scale.setScalar(this.worldPerPixel(group.position) * HANDLE_PX * 0.75)
       } else if (info.kind === 'lift') {
         group.visible = !(this.drag && this.drag.kind !== 'lift')
-        const top = t.localToWorld(this.boxPoint(new Vector3(0, 1, 0)))
+        const top = t.localToWorld(this.boxPoint(new Vector3(0, 1, 0), this.display))
         const s = this.worldPerPixel(top) * HANDLE_PX
         group.position.copy(top).y += s * 1.6
         group.scale.setScalar(s * 1.4)
@@ -330,7 +350,8 @@ export class Gizmo {
     const info = h.info
     if (info.kind === 'scale') {
       const up = new Vector3(0, 1, 0).applyQuaternion(t.quaternion)
-      const handleWorld = t.localToWorld(this.boxPoint(info.at))
+      this.updateDisplayBox()
+      const handleWorld = t.localToWorld(this.boxPoint(info.at, this.display))
       const plane = info.dir.y !== 0 ? this.facingPlane(up, handleWorld) : new Plane().setFromNormalAndCoplanarPoint(up, handleWorld)
       // 反対側（固定点）。伸縮しない軸は中央、ただし高さは常に底面（Shift 等倍時も接地を保つ）
       const anchorLocal = this.boxPoint(info.dir.clone().negate().setY(info.dir.y === 0 ? -1 : -info.dir.y))

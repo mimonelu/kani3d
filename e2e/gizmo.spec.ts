@@ -134,3 +134,27 @@ test('ドラッグ中に右ボタンを足して離しても操作が完了す�
   expect(await page.evaluate(() => (window as any).__kani.orbit.enabled)).toBe(true)
   expect(await page.evaluate(() => (window as any).__kani.isDragging)).toBe(false)
 })
+
+test('小さなオブジェクトでもハンドルが画面上で十分離れて並び、掴んで拡縮できる', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.newScene()
+    const id = k.addPrimitive('cube')
+    k.scene.traverse((o: any) => o.isMesh && o.userData.id === id && o.scale.set(0.05, 0.05, 0.05)) // 5cm
+    k.nudge(0, -9, 0) // 床に下ろす（スナップで底面 0）
+  })
+  const hs = await handles(page)
+  const d = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
+  // 対角のハンドル間が十分に離れている（枠を画面上 100px まで広げている）
+  expect(d(hs['scale:1,0,1'], hs['scale:-1,0,-1'])).toBeGreaterThan(60)
+  expect(d(hs['scale:0,1,0'], hs['scale:1,0,0'])).toBeGreaterThan(30)
+  const before = await bounds(page)
+  expect(before.max[1] - before.min[1]).toBeCloseTo(0.05, 4)
+  // 天面ハンドルで伸ばせる（計算は実寸の外枠: 底面固定・5cm 単位）
+  const h = hs['scale:0,1,0']
+  await drag(page, h, { x: h.x, y: h.y - 60 })
+  const b = await bounds(page)
+  expect(b.min[1]).toBeCloseTo(before.min[1], 4)
+  expect(b.max[1] - b.min[1]).toBeGreaterThan(0.06)
+  expect(onGrid(b.max[1] - b.min[1])).toBe(true)
+})
