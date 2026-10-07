@@ -49,6 +49,6 @@ export type SceneObjectData = PrimitiveObject | MeshObject
 
 export interface SceneDoc {
   format: 'kani3d'
-  version: 1
+  version: 2
   objects: SceneObjectData[]
 }

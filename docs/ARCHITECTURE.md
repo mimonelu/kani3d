@@ -21,7 +21,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | 単体の面数最適化 | `Editor.optimizeSelected`（オブジェクトのローカル座標で 1 入力の `mergeObjects` を通す。位置・回転・拡縮は保持。最適化前の形は `optimizedFrom` に残し、ボタンは結合と同様に切り替え式で「最適化解除」で戻す〈`store.optimizeMode`〉。結合物の `sources` は原点のずれ分を補正して引き継ぐので結合解除も可能） |
 | 旧形式のプリミティブ ID の変換 | `primitives.ts` の `LEGACY_PRIMITIVES`（`io.parseDoc` が適用） |
 | 色の追加・変更 | `core/palette.ts`（インデックス＝保存される色ID。並べ替え禁止、追加は末尾） |
-| 表示グリッド(10cm)・スナップ単位(5cm)・回転刻み・初期サイズ(10cm) | `core/constants.ts`（`GRID` は表示のみ、スナップは `SNAP`） |
+| 表示グリッド(10cm 間隔・一辺 10m)・スナップ単位(5cm)・回転刻み・初期サイズ(1m) | `core/constants.ts`（`GRID` は表示のみ、スナップは `SNAP`） |
 | フラット表示切替（エディタ上の見た目のみ。全マテリアルの `flatShading`、GLB には影響なし） | `Editor.setFlatShading`、記憶は `store.ts` |
 | カメラのフィット（全体表示・起動/読み込み時の自動フィット） | `Editor.frameAll / fitBox / resetView` |
 | 結合解除 | `Editor.unmergeSelected`（データは `MeshObject.sources`）。ボタンは結合と共用（`store.mergeMode`: 複数選択→結合、結合物 1 つ→解除） |

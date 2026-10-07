@@ -18,7 +18,7 @@ test('プリミティブ追加・積み上げ・色変更・Undo', async ({ page
   await cube.click() // 選択中の上に積まれる
   let data = await sceneData(page)
   // 位置は float32 頂点基準の外枠スナップなので 1e-9 程度の誤差を許容
-  expect(data.map((d) => d.position[1])).toEqual([expect.closeTo(0.05, 6), expect.closeTo(0.15, 6)])
+  expect(data.map((d) => d.position[1])).toEqual([expect.closeTo(0.5, 6), expect.closeTo(1.5, 6)])
 
   await page.locator('[data-color="0"]').click()
   data = await sceneData(page)
@@ -38,8 +38,8 @@ test('ドラッグ&ドロップで配置（オブジェクト上なら天面に�
   await page.locator('[data-primitive="wedge"]').dragTo(canvas, { targetPosition: center })
   const data = await sceneData(page)
   expect(data).toHaveLength(3)
-  expect(data[0].position[1]).toBeCloseTo(0.05)
-  expect(data[2].position[1]).toBeCloseTo(0.15) // 立方体の上
+  expect(data[0].position[1]).toBeCloseTo(0.5)
+  expect(data[2].position[1]).toBeCloseTo(1.5) // 立方体の上
 })
 
 test('キーボード操作は 5cm 単位、回転は中心が動かない', async ({ page }) => {
@@ -48,11 +48,11 @@ test('キーボード操作は 5cm 単位、回転は中心が動かない', asy
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('PageUp')
   let b = await page.evaluate(() => (window as any).__kani.selectionBounds())
-  expect(b.min).toEqual([0.05, 0.05, -0.05])
+  expect(b.min).toEqual([-0.4, 0.05, -0.5])
   await page.keyboard.press('y') // 45° 回転
   b = await page.evaluate(() => (window as any).__kani.selectionBounds())
   expect((b.min[0] + b.max[0]) / 2).toBeCloseTo(0.1, 6)
-  expect(b.max[0] - b.min[0]).toBeCloseTo(0.1 * Math.SQRT2, 3)
+  expect(b.max[0] - b.min[0]).toBeCloseTo(Math.SQRT2, 3)
 })
 
 test('非対称な形状を何度回転しても回転中心がずれない', async ({ page }) => {
@@ -96,7 +96,7 @@ test('結合解除: 結合後の移動・色変更を引き継いで元に戻る
   const data = await sceneData(page)
   expect(data.map((d: any) => d.primitive).sort()).toEqual(['cone', 'cube'])
   const cube = data.find((d: any) => d.primitive === 'cube')!
-  expect(cube.position.map((v) => +v.toFixed(4))).toEqual([0, 0.05, 0.2])
+  expect(cube.position.map((v) => +v.toFixed(4))).toEqual([0, 0.5, 0.2])
   expect(data.every((d) => d.color === 0)).toBe(true)
   await expect(page.getByRole('button', { name: '結合', exact: true })).toBeEnabled() // 2 つ選択 → 結合
   await page.keyboard.press('Control+z')
@@ -218,7 +218,7 @@ test('形状オプション: 柱の角数・半分を変更でき、Undo でき�
   await page.locator('.shape-options [data-param="half"]').check()
   const b = await page.evaluate(() => (window as any).__kani.selectionBounds())
   expect(b.min[1]).toBeCloseTo(0) // 底面の高さは保つ
-  expect(+(b.max[2] - b.min[2]).toFixed(4)).toBe(0.05)
+  expect(+(b.max[2] - b.min[2]).toFixed(4)).toBe(0.5)
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   expect((await sceneData(page))[0]).not.toHaveProperty('params')
@@ -240,7 +240,7 @@ test('旧形式のプリミティブ ID は読み込み時に変換される', a
   await expect.poll(async () => (await sceneData(page)).length).toBe(2)
   const data: any[] = await sceneData(page)
   expect(data[0]).toMatchObject({ primitive: 'prism', params: { sides: 6 } })
-  expect(data[1]).toMatchObject({ primitive: 'cube', scale: [1, 2, 1] })
+  expect(data[1]).toMatchObject({ primitive: 'cube', scale: [0.1, 0.2, 0.1] }) // v1（基本 10cm）→ 実寸を保って換算
 })
 
 test('未選択で追加すると画面中央に見えている床に置かれる', async ({ page }) => {

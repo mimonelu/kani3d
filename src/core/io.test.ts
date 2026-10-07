@@ -61,3 +61,25 @@ describe('parseDoc の検証強化', () => {
     expect((d.objects[0] as { mesh: { groups: unknown[] } }).mesh.groups).toHaveLength(1)
   })
 })
+
+describe('v1 → v2 移行（基本サイズ 10cm → 1m）', () => {
+  it('プリミティブの拡大率を 1/10 にして実寸を保つ（結合元も）', () => {
+    const t = { position: [0, 0.05, 0], quaternion: [0, 0, 0, 1], scale: [2, 1, 1] }
+    const mesh = { positions: [0, 0, 0, 1, 0, 0, 0, 1, 0], normals: [0, 0, 1, 0, 0, 1, 0, 0, 1], indices: [0, 1, 2], groups: [] }
+    const v1 = {
+      format: 'kani3d',
+      version: 1,
+      objects: [
+        { id: 'a', kind: 'primitive', primitive: 'cube', color: 0, ...t },
+        { id: 'm', kind: 'mesh', mesh, ...t, sources: [{ id: 's', kind: 'primitive', primitive: 'cube', color: 0, ...t }] },
+      ],
+    }
+    const d = parseDoc(JSON.stringify(v1))
+    expect(d.version).toBe(2)
+    expect(d.objects[0].scale).toEqual([expect.closeTo(0.2), expect.closeTo(0.1), expect.closeTo(0.1)])
+    expect(d.objects[1].scale).toEqual([2, 1, 1]) // メッシュは実寸の頂点を持つのでそのまま
+    expect((d.objects[1] as { sources: { scale: number[] }[] }).sources[0].scale[0]).toBeCloseTo(0.2)
+    // v2 はそのまま
+    expect(parseDoc(stringifyDoc(d))).toEqual(d)
+  })
+})

@@ -12,8 +12,8 @@ import {
   Color,
   DirectionalLight,
   DoubleSide,
+  Float32BufferAttribute,
   FrontSide,
-  GridHelper,
   HemisphereLight,
   LineBasicMaterial,
   LineSegments,
@@ -223,18 +223,16 @@ export class Editor {
     dir.position.set(3, 5, 2)
     this.scene.add(dir)
 
-    const minor = new GridHelper(GRID_EXTENT, Math.round(GRID_EXTENT / GRID), '#2e353e', '#2e353e')
-    const major = new GridHelper(GRID_EXTENT, GRID_EXTENT, '#4a5562', '#4a5562')
+    // 10cm ごとの細線と 1m ごとの太線（一辺が奇数 m でも線が原点基準の格子に乗るよう自前で引く）
+    const minor = gridLines(GRID_EXTENT, GRID, '#2e353e', 1)
+    const major = gridLines(GRID_EXTENT, 1, '#4a5562')
     minor.position.y = -0.0005
-    for (const g of [minor, major]) {
-      g.raycast = () => {}
-      this.ground.add(g)
-    }
+    this.ground.add(minor, major)
     this.scene.add(this.ground)
     // 原点から +X / +Z 方向の軸ライン（細い板で太さを出す）
     const half = GRID_EXTENT / 2
     for (const axis of ['x', 'z'] as const) {
-      const w = 0.006
+      const w = 0.02
       const geo = new PlaneGeometry(axis === 'x' ? half : w, axis === 'x' ? w : half).rotateX(-Math.PI / 2)
       const line = new Mesh(geo, new MeshBasicMaterial({ color: AXIS_COLOR[axis], depthWrite: false }))
       line.position.set(axis === 'x' ? half / 2 : 0, 0.0008, axis === 'z' ? half / 2 : 0)
@@ -242,7 +240,7 @@ export class Editor {
       line.renderOrder = 1
       this.ground.add(line)
       const label = axisLabel(axis === 'x' ? '+X' : '+Z', AXIS_COLOR[axis])
-      label.position.set(axis === 'x' ? half + 0.12 : 0, 0.02, axis === 'z' ? half + 0.12 : 0)
+      label.position.set(axis === 'x' ? half + 0.35 : 0, 0.05, axis === 'z' ? half + 0.35 : 0)
       this.ground.add(label)
     }
   }
@@ -938,7 +936,7 @@ export class Editor {
 
   resetView(): void {
     this.orbit.target.set(0, 0, 0)
-    this.camera.position.set(0.45, 0.42, 0.6)
+    this.camera.position.set(3.6, 3.4, 4.8)
     this.orbit.update()
   }
 
@@ -988,7 +986,7 @@ export class Editor {
       const pos = m.geometry.getAttribute('position')
       for (let i = 0; i < pos.count; i++) pts.push(new Vector3().fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld))
     }
-    if (!pts.length) pts.push(new Vector3(-0.05, 0, -0.05), new Vector3(0.05, 0.1, 0.05))
+    if (!pts.length) pts.push(new Vector3(-0.5, 0, -0.5), new Vector3(0.5, 1, 0.5))
     // 余白を除いた範囲の画角（tan）
     const tanV0 = Math.tan((this.camera.fov * Math.PI) / 360)
     const tanH = tanV0 * (width / height) * Math.max(0.01, 1 - (2 * padding) / width)
@@ -1301,7 +1299,7 @@ function axisLabel(text: string, color: string): Sprite {
   ctx.fillStyle = color
   ctx.fillText(text, 64, 32)
   const sprite = new Sprite(new SpriteMaterial({ map: new CanvasTexture(c), depthWrite: false }))
-  sprite.scale.set(0.2, 0.1, 1)
+  sprite.scale.set(0.6, 0.3, 1)
   sprite.raycast = () => {}
   return sprite
 }
@@ -1406,3 +1404,21 @@ function baseColorOf(ud: ObjUserData): number {
 }
 
 const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z].map((x) => Math.round(x * 1e4) / 1e4) as Vec3
+
+/** 原点基準で step ごとの格子線（一辺 extent）。skipEvery を指定するとその倍数（太線と重なる線）を省く */
+function gridLines(extent: number, step: number, color: string, skipEvery?: number): LineSegments {
+  const half = extent / 2
+  const n = Math.floor(half / step + 1e-9)
+  const pts: number[] = []
+  for (let i = -n; i <= n; i++) {
+    const v = i * step
+    if (skipEvery && Math.abs(v / skipEvery - Math.round(v / skipEvery)) < 1e-9) continue
+    pts.push(v, 0, -half, v, 0, half, -half, 0, v, half, 0, v)
+  }
+  const lines = new LineSegments(
+    new BufferGeometry().setAttribute('position', new Float32BufferAttribute(pts, 3)),
+    new LineBasicMaterial({ color }),
+  )
+  lines.raycast = () => {}
+  return lines
+}

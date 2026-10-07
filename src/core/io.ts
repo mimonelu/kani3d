@@ -1,6 +1,7 @@
 /** 保存形式 (.kani = JSON) の読み書きと GLB 出力 */
 import { Group, Mesh, type Object3D } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
+import { BASE_SIZE, BASE_SIZE_V1 } from './constants'
 import { clampColor, exportMaterials } from './palette'
 import { LEGACY_PRIMITIVES, compactParams, getPrimitive, resolveParams } from './primitives'
 import type { MeshData, SceneDoc, SceneObjectData } from './types'
@@ -8,7 +9,7 @@ import type { MeshData, SceneDoc, SceneObjectData } from './types'
 export const FILE_EXT = '.kani'
 
 export function createDoc(objects: SceneObjectData[]): SceneDoc {
-  return { format: 'kani3d', version: 1, objects }
+  return { format: 'kani3d', version: 2, objects }
 }
 
 const isNums = (v: unknown, len?: number): v is number[] =>
@@ -38,8 +39,24 @@ function parseMesh(m: unknown): MeshData {
 /** JSON 文字列を検証して SceneDoc にする。不正なら例外 */
 export function parseDoc(text: string): SceneDoc {
   const raw = JSON.parse(text) as Partial<SceneDoc>
-  if (raw.format !== 'kani3d' || raw.version !== 1 || !Array.isArray(raw.objects)) throw new Error('kani3d 形式ではありません')
-  return { format: 'kani3d', version: 1, objects: parseObjects(raw.objects, new Set(), 0) }
+  const version = raw.version as number
+  if (raw.format !== 'kani3d' || (version !== 1 && version !== 2) || !Array.isArray(raw.objects))
+    throw new Error('kani3d 形式ではありません')
+  const objects = parseObjects(raw.objects, new Set(), 0)
+  // v1 はプリミティブの基本サイズが 10cm だった。拡大率を換算して実寸を保つ
+  return { format: 'kani3d', version: 2, objects: version === 1 ? objects.map(migrateV1) : objects }
+}
+
+function migrateV1(o: SceneObjectData): SceneObjectData {
+  if (o.kind === 'primitive') {
+    const k = BASE_SIZE_V1 / BASE_SIZE
+    return { ...o, scale: [o.scale[0] * k, o.scale[1] * k, o.scale[2] * k] }
+  }
+  // 最適化済みプリミティブは「解除時にメッシュの拡大率を使う」ため換算できない。最適化前の情報は外す（見た目は変わらない）
+  const of = o.optimizedFrom && o.optimizedFrom.object.kind === 'mesh' ? { ...o.optimizedFrom, object: migrateV1(o.optimizedFrom.object) } : undefined
+  const { optimizedFrom: _drop, ...rest } = o
+  void _drop
+  return { ...rest, ...(o.sources && { sources: o.sources.map(migrateV1) }), ...(of && { optimizedFrom: of }) }
 }
 
 /** ids: シーン直下の ID 重複検出用（sources 内は結合解除時に振り直すので対象外） */

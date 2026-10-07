@@ -663,8 +663,21 @@ export function mergeObjects(inputs: MergeInput[], opts: { simplify?: boolean } 
   // 分割方式・結合順を変えて試し、辺の問題が最も少ない結果を採用する
   let raw: Soup | null = null
   let best = Infinity
-  for (const [cdt, reverse] of [[true, false], [true, true], [false, false], [false, true]] as const) {
-    const soup = fillPlanarHoles(fixTJunctions(clusterVertices(csgUnion(reverse ? [...inputs].reverse() : inputs, cdt))))
+  // それでも残る場合は、交差がちょうど頂点をかすめるような退化配置とみなし、
+  // 2 つ目以降をごくわずか（数 µm）ずらして再計算する。ずれは clusterVertices（0.05mm）で吸収される
+  const nudged = (k: number): MergeInput[] =>
+    inputs.map((inp, i) =>
+      i === 0 ? inp : { ...inp, matrixWorld: new Matrix4().makeTranslation(1e-6 * k, 1.7e-6 * k, 2.3e-6 * k).multiply(inp.matrixWorld) },
+    )
+  const strategies: [MergeInput[], boolean][] = [
+    [inputs, true],
+    [[...inputs].reverse(), true],
+    [inputs, false],
+    [[...inputs].reverse(), false],
+    ...[1, 2, 3].map((k): [MergeInput[], boolean] => [nudged(k), true]),
+  ]
+  for (const [list, cdt] of strategies) {
+    const soup = fillPlanarHoles(fixTJunctions(clusterVertices(csgUnion(list, cdt))))
     const issues = soupIssueEdges(soup).size
     if (issues < best) [raw, best] = [soup, issues]
     if (issues === 0) break

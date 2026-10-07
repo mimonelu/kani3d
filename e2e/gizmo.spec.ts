@@ -30,10 +30,10 @@ test('天面ハンドルで高さだけ伸び、底面は固定', async ({ page 
   const h = (await handles(page))['scale:0,1,0']
   await drag(page, h, { x: h.x, y: h.y - 120 })
   const b = await bounds(page)
-  expect(b.min).toEqual([-0.05, 0, -0.05])
-  expect(b.max[1]).toBeGreaterThan(0.12)
+  expect(b.min).toEqual([-0.5, 0, -0.5])
+  expect(b.max[1]).toBeGreaterThan(1.05)
   expect(onGrid(b.max[1])).toBe(true)
-  expect(b.max[0]).toBeCloseTo(0.05)
+  expect(b.max[0]).toBeCloseTo(0.5)
 })
 
 test('角ハンドルは反対の角を固定して X/Z を伸縮', async ({ page }) => {
@@ -42,10 +42,10 @@ test('角ハンドルは反対の角を固定して X/Z を伸縮', async ({ pag
   const away = { x: h.x + (h.x - hs['scale:-1,0,-1'].x) * 0.6, y: h.y + (h.y - hs['scale:-1,0,-1'].y) * 0.6 }
   await drag(page, h, away)
   const b = await bounds(page)
-  expect(b.min).toEqual([-0.05, 0, -0.05]) // 反対角は動かない
-  expect(b.max[0]).toBeGreaterThan(0.08)
-  expect(b.max[2]).toBeGreaterThan(0.08)
-  expect(b.max[1]).toBeCloseTo(0.1) // 高さは不変
+  expect(b.min).toEqual([-0.5, 0, -0.5]) // 反対角は動かない
+  expect(b.max[0]).toBeGreaterThan(0.55)
+  expect(b.max[2]).toBeGreaterThan(0.55)
+  expect(b.max[1]).toBeCloseTo(1) // 高さは不変
   for (const v of [...b.min, ...b.max]) expect(onGrid(v)).toBe(true)
 })
 
