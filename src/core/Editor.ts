@@ -146,7 +146,20 @@ export class Editor {
   private frame = 0
   private resizeObserver: ResizeObserver
   /** 左ボタン押下中の状態。clickId は「動かさずに離したら単独選択にする」対象 */
-  private pointer: { id: number; x: number; y: number; dragging: boolean; clickId: string | null; painting?: boolean } | null = null
+  private pointer: {
+    id: number
+    x: number
+    y: number
+    dragging: boolean
+    clickId: string | null
+    painting?: boolean
+    /** カーソルの線上のオブジェクト（手前から） */
+    stack?: string[]
+    /** 押したオブジェクトが押す前から単独選択されていたか */
+    wasSelected?: boolean
+  } | null = null
+  /** 直前のクリック位置（同じ場所の再クリックで奥へ切り替えるため） */
+  private lastClick: { x: number; y: number } | null = null
   private dragInfo = ''
   private xray = false
 
@@ -1157,9 +1170,16 @@ export class Editor {
       return
     }
     // 2) オブジェクト: Shift/Ctrl は選択の追加・解除のみ。通常は選択してそのまま床と平行に移動
-    const hit = this.raycaster.intersectObjects(this.meshes, false)[0]
-    if (!hit) return
-    const id = (hit.object.userData as ObjUserData).id
+    const hits = this.raycaster.intersectObjects(this.meshes, false)
+    if (!hits.length) return
+    const idOf = (h: (typeof hits)[number]) => (h.object.userData as ObjUserData).id
+    // カーソルの線上に選択中のオブジェクトがあれば、手前に別のものがあってもそれを掴む
+    // （大きな立方体の中に置いたオブジェクトなどを動かせるように）
+    const hit = hits.find((h) => this.selection.includes(idOf(h))) ?? hits[0]
+    const id = idOf(hit)
+    // 同じ場所の再クリックで奥のオブジェクトへ切り替える用（線上のオブジェクトを手前から順に）
+    this.pointer.stack = [...new Set(hits.map(idOf))]
+    this.pointer.wasSelected = this.selection.length === 1 && this.selection[0] === id
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
       this.setSelection(this.selection.includes(id) ? this.selection.filter((s) => s !== id) : [...this.selection, id])
       this.pointer = null
@@ -1228,11 +1248,19 @@ export class Editor {
       this.orbit.enabled = true
       const changed = this.gizmo.endDrag()
       this.dragInfo = ''
+      const last = this.lastClick
+      this.lastClick = clicked && !changed ? { x: e.clientX, y: e.clientY } : null
       if (changed) this.commit()
       else if (clicked && p.clickId && this.selection.length > 1) this.setSelection([p.clickId])
+      else if (clicked && p.wasSelected && p.stack && p.stack.length > 1 && last && Math.hypot(e.clientX - last.x, e.clientY - last.y) <= 4) {
+        // 同じ場所をもう一度クリック: 線上の次（奥）のオブジェクトを選ぶ。最後まで行ったら手前に戻る
+        const i = p.stack.indexOf(this.selection[0])
+        this.setSelection([p.stack[(i + 1) % p.stack.length]])
+      }
       this.emit()
       return
     }
+    this.lastClick = null
     if (clicked) this.setSelection([])
   }
 

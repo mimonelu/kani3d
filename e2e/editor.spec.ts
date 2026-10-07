@@ -461,3 +461,47 @@ test('画像出力: 余白どおりに全体を収め、入力内容は閉じて
   await expect(page.locator('[data-field="cameraPreset"]')).toHaveValue('iso-ru')
   await expect(page.locator('[data-field="padding"]')).toHaveValue('10')
 })
+
+test('大きな立方体の中のオブジェクト: 選択中なら掴めて、同じ場所の再クリックで奥へ切り替わる', async ({ page }) => {
+  const ids = await page.evaluate(() => {
+    const k = (window as any).__kani
+    const big = k.addPrimitive('cube')
+    k.scene.traverse((o: any) => o.isMesh && o.userData.id === big && o.scale.set(3, 3, 3))
+    k.setSelection([])
+    const small = k.addPrimitive('sphere') // 画面中央の床 = 大きな立方体の中
+    return { big, small }
+  })
+  const pos = (id: string) => page.evaluate((id) => (window as any).__kani.toData().find((d: any) => d.id === id).position, id)
+  const screenOf = (id: string) =>
+    page.evaluate((id) => {
+      const k = (window as any).__kani
+      let m: any
+      k.scene.traverse((o: any) => o.isMesh && o.userData.id === id && (m = o))
+      k.camera.updateMatrixWorld()
+      const p = m.getWorldPosition(m.position.clone()).project(k.camera)
+      const r = k.renderer.domElement.getBoundingClientRect()
+      return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height }
+    }, id)
+  const selected = () => page.evaluate(() => (window as any).__kani.currentState().selection)
+
+  // 選択中の小さい球は、手前の大きな立方体越しでも掴んで動かせる
+  const bigBefore = await pos(ids.big)
+  const smallBefore = await pos(ids.small)
+  const c = await screenOf(ids.small)
+  await page.mouse.move(c.x, c.y)
+  await page.mouse.down()
+  for (let i = 1; i <= 8; i++) await page.mouse.move(c.x + i * 10, c.y)
+  await page.mouse.up()
+  expect(await pos(ids.big)).toEqual(bigBefore)
+  expect((await pos(ids.small))[0]).not.toBeCloseTo(smallBefore[0], 3)
+
+  // 未選択から: 1 回目は手前（大きな立方体）、同じ場所の 2 回目で奥（球）、3 回目で手前に戻る
+  await page.keyboard.press('Escape')
+  const s = await screenOf(ids.small)
+  await page.mouse.click(s.x, s.y)
+  expect(await selected()).toEqual([ids.big])
+  await page.mouse.click(s.x, s.y)
+  expect(await selected()).toEqual([ids.small])
+  await page.mouse.click(s.x, s.y)
+  expect(await selected()).toEqual([ids.big])
+})
