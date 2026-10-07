@@ -161,8 +161,14 @@ test('小さなオブジェクトでもハンドルが画面上で十分離れ�
 
 test('移動ガイド: 接地点（真下の天面・縦線）と接触面をドラッグ中だけ表示', async ({ page }) => {
   const guides = () => page.evaluate(() => (window as any).__kani.guides.debugState())
-  // A: 原点の立方体（beforeEach で追加済み）。B: A の上に積む
-  await page.evaluate(() => (window as any).__kani.addPrimitive('cube'))
+  // A: 原点の立方体（beforeEach で追加済み）。B: A の上に積む（見下ろし 45° 以上で追加）
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    const cam = k.camera.position.clone()
+    k.camera.position.set(2, 6, 3)
+    k.addPrimitive('cube')
+    k.camera.position.copy(cam)
+  })
   // 持ち上げハンドルで B を浮かせる → 足跡は A の天面（y=1）、縦線あり、接触なし
   let h = (await handles(page))['lift']
   await page.mouse.move(h.x, h.y)

@@ -13,6 +13,11 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('プリミティブ追加・積み上げ・色変更・Undo', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.camera.position.set(2, 6, 3) // 見下ろし 45° 以上 → 選択物の上に積む
+    k.orbit.update()
+  })
   const cube = page.locator('[data-primitive="cube"]')
   await cube.click()
   await cube.click() // 選択中の上に積まれる
@@ -504,4 +509,38 @@ test('大きな立方体の中のオブジェクト: 選択中なら掴めて、
   expect(await selected()).toEqual([ids.small])
   await page.mouse.click(s.x, s.y)
   expect(await selected()).toEqual([ids.big])
+})
+
+test('選択中に追加: カメラの向きで付ける面を選び、横なら外向きに回転する', async ({ page }) => {
+  const place = (cam: number[]) =>
+    page.evaluate((cam) => {
+      const k = (window as any).__kani
+      k.newScene()
+      const base = k.addPrimitive('cube') // 原点、1m
+      k.camera.position.set(...cam)
+      k.orbit.target.set(0, 0.5, 0)
+      k.orbit.update()
+      k.setSelection([base])
+      k.addPrimitive('cone')
+      const d = k.toData()[1]
+      const b = k.selectionBounds()
+      return { q: d.quaternion.map((v: number) => +v.toFixed(4)), min: b.min, max: b.max }
+    }, cam)
+  const s = Math.SQRT1_2
+  // 正面（+Z、見下ろし約 25°）: 手前の面に接し、錐の先端は +Z
+  let r = await place([1, 2, 5])
+  expect(r.q).toEqual([+s.toFixed(4), 0, 0, +s.toFixed(4)])
+  expect(r.min[2]).toBeCloseTo(0.5, 4)
+  expect(r.min[1]).toBeCloseTo(0, 4) // 底面は選択物に揃う
+  // 右（+X）: 右の面に接し、先端は +X
+  r = await place([5, 1.5, 1])
+  expect(r.q).toEqual([0, 0, -s.toFixed(4), +s.toFixed(4)])
+  expect(r.min[0]).toBeCloseTo(0.5, 4)
+  // 左奥（-Z が強い）
+  r = await place([-1, 1.5, -5])
+  expect(r.max[2]).toBeCloseTo(-0.5, 4)
+  // 見下ろし 45° 以上: 上に積み、回転しない
+  r = await place([1, 6, 2])
+  expect(r.q).toEqual([0, 0, 0, 1])
+  expect(r.min[1]).toBeCloseTo(1, 4)
 })

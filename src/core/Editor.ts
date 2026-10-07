@@ -480,7 +480,7 @@ export class Editor {
 
   // ------------------------------------------------------------ editing
 
-  /** プリミティブを追加。at 未指定なら選択物の上、無ければ画面中央に見えている床に置く */
+  /** プリミティブを追加。at 未指定なら選択物のカメラ側の面（見下ろし 45° 以上なら上）、無ければ画面中央に見えている床に置く */
   addPrimitive(primitive: string, at?: Vector3): string {
     const id = newId()
     const mesh = this.buildMesh({
@@ -492,14 +492,32 @@ export class Editor {
       quaternion: [0, 0, 0, 1],
       scale: [1, 1, 1],
     })
-    let base = at
-    if (!base) {
-      const sel = this.selection.map((i) => this.meshById(i)!).filter(Boolean)
-      if (sel.length) {
-        const box = new Box3()
-        for (const m of sel) box.expandByObject(m, true)
-        base = new Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2)
-      } else {
+    const sel = this.selection.map((i) => this.meshById(i)!).filter(Boolean)
+    if (!at && sel.length) {
+      // 選択物の、カメラから見て一番こちらを向いている面の外側に置く（見下ろし 45° 以上なら上面）。
+      // 横の面に付けるときは、オブジェクトの上方向をその面の外向きに合わせて回転する
+      const box = new Box3()
+      for (const m of sel) box.expandByObject(m, true)
+      const face = this.facingFace(box)
+      if (face !== '+y') {
+        const [axis, angle] = FACE_ROTATION[face]
+        mesh.quaternion.setFromAxisAngle(axis, angle)
+      }
+      mesh.updateMatrixWorld(true)
+      const mb = new Box3().setFromObject(mesh, true)
+      const c = box.getCenter(new Vector3())
+      const mc = mb.getCenter(new Vector3())
+      // 面に接する位置: 法線方向は面にぴったり、横方向は面の中央、高さは（上面以外）選択物の底面に揃える
+      const target = new Vector3(c.x - mc.x, box.min.y - mb.min.y, c.z - mc.z)
+      if (face === '+y') target.y = box.max.y - mb.min.y
+      else if (face === '+x') target.x = box.max.x - mb.min.x
+      else if (face === '-x') target.x = box.min.x - mb.max.x
+      else if (face === '+z') target.z = box.max.z - mb.min.z
+      else target.z = box.min.z - mb.max.z
+      mesh.position.copy(target)
+    } else {
+      let base = at
+      if (!base) {
         // 画面中央の視線と床の交点（見えている中央に置く）。床が見えない向きなら注視点の真下
         this.camera.updateMatrixWorld() // 視点変更直後で未描画でも最新の向きで
         this.raycaster.setFromCamera(new Vector2(0, 0), this.camera)
@@ -507,14 +525,23 @@ export class Editor {
           this.raycaster.ray.intersectPlane(this.groundPlane, new Vector3()) ??
           new Vector3(this.orbit.target.x, 0, this.orbit.target.z)
       }
+      const bb = mesh.geometry.boundingBox!
+      mesh.position.set(base.x, base.y - bb.min.y, base.z)
     }
-    const bb = mesh.geometry.boundingBox!
-    mesh.position.set(base.x, base.y - bb.min.y, base.z)
     this.objectRoot.add(mesh)
     this.snapBoxMin(mesh)
     this.setSelection([id])
     this.commit()
     return id
+  }
+
+  /** 箱の、カメラから見て一番こちらを向いている面（見下ろし 45° 以上なら上面。下面は選ばない） */
+  private facingFace(box: Box3): Face {
+    const toCam = this.camera.position.clone().sub(box.getCenter(new Vector3()))
+    const elevation = Math.asin(Math.max(-1, Math.min(1, toCam.y / (toCam.length() || 1))))
+    if (elevation >= Math.PI / 4) return '+y'
+    if (Math.abs(toCam.x) > Math.abs(toCam.z)) return toCam.x > 0 ? '+x' : '-x'
+    return toCam.z > 0 ? '+z' : '-z'
   }
 
   deleteSelected(): void {
@@ -1464,4 +1491,13 @@ function gridLines(extent: number, step: number, color: string, skipEvery?: numb
   )
   lines.raycast = () => {}
   return lines
+}
+
+type Face = '+y' | '+x' | '-x' | '+z' | '-z'
+/** 横の面に付けるときの回転（オブジェクトの +Y を面の外向きへ） */
+const FACE_ROTATION: Record<Exclude<Face, '+y'>, [Vector3, number]> = {
+  '+z': [new Vector3(1, 0, 0), Math.PI / 2],
+  '-z': [new Vector3(1, 0, 0), -Math.PI / 2],
+  '+x': [new Vector3(0, 0, 1), -Math.PI / 2],
+  '-x': [new Vector3(0, 0, 1), Math.PI / 2],
 }
