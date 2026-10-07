@@ -41,6 +41,7 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GRID, GRID_EXTENT, ROT_STEP, SNAP, snapValue } from './constants'
 import { AXIS_COLOR, Gizmo } from './Gizmo'
+import { MoveGuides } from './MoveGuides'
 import { History } from './history'
 import { createDoc, exportGlb } from './io'
 import { mergeObjects } from './merge'
@@ -131,6 +132,8 @@ export class Editor {
   readonly renderer: WebGLRenderer
   readonly orbit: OrbitControls
   readonly gizmo: Gizmo
+  /** 移動中のガイド（接地点・接触面） */
+  readonly guides = new MoveGuides()
 
   private readonly objectRoot = new Object3D()
   /** グリッド・軸ライン（画像出力で含めるか選べる） */
@@ -182,6 +185,7 @@ export class Editor {
 
     this.gizmo = new Gizmo(this.camera, (o) => this.snapBoxMin(o))
     this.scene.add(this.gizmo.root)
+    this.scene.add(this.guides.root)
 
     const el = this.renderer.domElement
     el.addEventListener('pointerdown', this.onPointerDown)
@@ -1046,7 +1050,7 @@ export class Editor {
     cam.updateMatrixWorld()
 
     // エディタ用の表示を一時的に隠す
-    const hidden: Object3D[] = [this.gizmo.root, ...this.helpers.values()]
+    const hidden: Object3D[] = [this.gizmo.root, this.guides.root, ...this.helpers.values()]
     if (!o.grid) hidden.push(this.ground)
     for (const m of this.meshes) for (const c of m.children) hidden.push(c)
     const restore = hidden.map((h) => [h, h.visible] as const)
@@ -1137,6 +1141,7 @@ export class Editor {
     }
     if (!p?.dragging) return
     this.gizmo.cancelDrag()
+    this.guides.end()
     this.orbit.enabled = true
     this.dragInfo = ''
     this.emit()
@@ -1194,6 +1199,12 @@ export class Editor {
   private startDrag(): void {
     this.pointer!.dragging = true
     this.orbit.enabled = false
+    // 本体の移動・持ち上げ中だけガイドを出す（動かないオブジェクトの外枠を控える）
+    const kind = this.gizmo.dragKind
+    if (kind === 'move' || kind === 'lift') {
+      const sel = new Set(this.selection)
+      this.guides.begin(this.meshes.filter((m) => !sel.has((m.userData as ObjUserData).id)))
+    }
   }
 
   private capture(e: PointerEvent): void {
@@ -1219,6 +1230,8 @@ export class Editor {
     }
     if (this.pointer?.dragging && this.gizmo.dragging) {
       const info = this.gizmo.updateDrag(this.raycaster.ray, e.shiftKey)
+      const kind = this.gizmo.dragKind
+      if ((kind === 'move' || kind === 'lift') && this.transformTarget) this.guides.update(this.transformTarget)
       if (info !== this.dragInfo) {
         this.dragInfo = info
         this.emit()
@@ -1247,6 +1260,7 @@ export class Editor {
     if (p.dragging) {
       this.orbit.enabled = true
       const changed = this.gizmo.endDrag()
+      this.guides.end()
       this.dragInfo = ''
       const last = this.lastClick
       this.lastClick = clicked && !changed ? { x: e.clientX, y: e.clientY } : null

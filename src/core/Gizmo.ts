@@ -168,6 +168,10 @@ export class Gizmo {
     return this.drag !== null
   }
 
+  get dragKind(): 'scale' | 'lift' | 'rotate' | 'move' | null {
+    return this.drag?.kind ?? null
+  }
+
   // ------------------------------------------------------------ per frame
 
   private worldPerPixel(p: Vector3): number {

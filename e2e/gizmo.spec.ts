@@ -158,3 +158,41 @@ test('小さなオブジェクトでもハンドルが画面上で十分離れ�
   expect(b.max[1] - b.min[1]).toBeGreaterThan(0.06)
   expect(onGrid(b.max[1] - b.min[1])).toBe(true)
 })
+
+test('移動ガイド: 接地点（真下の天面・縦線）と接触面をドラッグ中だけ表示', async ({ page }) => {
+  const guides = () => page.evaluate(() => (window as any).__kani.guides.debugState())
+  // A: 原点の立方体（beforeEach で追加済み）。B: A の上に積む
+  await page.evaluate(() => (window as any).__kani.addPrimitive('cube'))
+  // 持ち上げハンドルで B を浮かせる → 足跡は A の天面（y=1）、縦線あり、接触なし
+  let h = (await handles(page))['lift']
+  await page.mouse.move(h.x, h.y)
+  await page.mouse.down()
+  for (let i = 1; i <= 6; i++) await page.mouse.move(h.x, h.y - i * 10)
+  let g = await guides()
+  expect(g.visible).toBe(true)
+  expect(g.footprintY).toBeCloseTo(1, 2)
+  expect(g.drop).toBe(true)
+  expect(g.contacts).toBe(0)
+  await page.mouse.up()
+  expect((await guides()).visible).toBe(false)
+
+  // B を A の横にぴったり付けて少し持ち上げる → 側面で接触、足跡は床
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    const [a, b] = k.toData()
+    k.setSelection([b.id])
+    k.scene.traverse((o: any) => o.isMesh && o.userData.id === b.id && o.position.set(1, 0.5, 0))
+    k.setSelection([b.id])
+    void a
+  })
+  h = (await handles(page))['lift']
+  await page.mouse.move(h.x, h.y)
+  await page.mouse.down()
+  for (let i = 1; i <= 4; i++) await page.mouse.move(h.x, h.y - i * 8)
+  g = await guides()
+  expect(g.contacts).toBe(1)
+  expect(g.footprintY).toBeCloseTo(0, 2)
+  await page.keyboard.press('Escape') // 取り消しでも消える
+  await page.mouse.up()
+  expect((await guides()).visible).toBe(false)
+})
