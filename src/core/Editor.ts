@@ -503,6 +503,7 @@ export class Editor {
         const [axis, angle] = FACE_ROTATION[face]
         mesh.quaternion.setFromAxisAngle(axis, angle)
       }
+      this.fitToFace(mesh, box, face)
       mesh.updateMatrixWorld(true)
       const mb = new Box3().setFromObject(mesh, true)
       const c = box.getCenter(new Vector3())
@@ -534,6 +535,40 @@ export class Editor {
     this.setSelection([id])
     this.commit()
     return id
+  }
+
+  /**
+   * 付ける面の大きさに合わせて拡縮する。面と平行な 2 方向は面の大きさを 5cm 単位で切り下げ（面より大きくしない。最小 5cm）、
+   * 面から外へ伸びる方向は平行 2 方向の倍率の小さい方を元の寸法に掛けて 5cm 単位に丸める（立方体に立方体を足すと同じ大きさ、
+   * 半球など縦横比が 1:1 でない形はその比を保つ）
+   */
+  private fitToFace(mesh: Mesh, box: Box3, face: Face): void {
+    const normal = face[1] as 'x' | 'y' | 'z'
+    const faceSize = box.getSize(new Vector3())
+    const local = mesh.geometry.boundingBox!.getSize(new Vector3())
+    // ワールド軸 → それを向くローカル軸
+    const localOf = {} as Record<'x' | 'y' | 'z', 'x' | 'y' | 'z'>
+    for (const la of ['x', 'y', 'z'] as const) {
+      const v = new Vector3()
+      v[la] = 1
+      v.applyQuaternion(mesh.quaternion)
+      const wa = (['x', 'y', 'z'] as const).reduce((best, a) => (Math.abs(v[a]) > Math.abs(v[best]) ? a : best), 'x' as 'x' | 'y' | 'z')
+      localOf[wa] = la
+    }
+    const tangents = (['x', 'y', 'z'] as const).filter((a) => a !== normal)
+    const ratios: number[] = []
+    for (const wa of tangents) {
+      const la = localOf[wa]
+      if (local[la] < 1e-9) continue
+      const size = Math.max(SNAP, Math.floor(faceSize[wa] / SNAP + 1e-6) * SNAP)
+      mesh.scale[la] = size / local[la]
+      ratios.push(mesh.scale[la])
+    }
+    const ln = localOf[normal]
+    if (local[ln] > 1e-9 && ratios.length) {
+      const size = Math.max(SNAP, Math.round((local[ln] * Math.min(...ratios)) / SNAP) * SNAP)
+      mesh.scale[ln] = size / local[ln]
+    }
   }
 
   /** 箱の、カメラから見て一番こちらを向いている面（見下ろし 45° 以上なら上面、見上げ 45° 以上なら下面） */

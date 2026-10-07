@@ -548,3 +548,31 @@ test('選択中に追加: カメラの向きで付ける面を選び、横なら
   expect(r.q).toEqual([1, 0, 0, 0])
   expect(r.max[1]).toBeCloseTo(0, 4)
 })
+
+test('選択中に追加: 接触面に合わせて拡縮（5cm 単位で切り下げ・面より大きくしない・縦横比は保つ）', async ({ page }) => {
+  const add = (prim: string, cam: number[], baseScale: number[]) =>
+    page.evaluate(
+      ({ prim, cam, baseScale }) => {
+        const k = (window as any).__kani
+        k.newScene()
+        const base = k.addPrimitive('cube')
+        k.scene.traverse((o: any) => o.isMesh && o.userData.id === base && o.scale.set(...baseScale))
+        k.nudge(0, 0, 0)
+        k.camera.position.set(...cam)
+        k.orbit.update()
+        k.setSelection([base])
+        k.addPrimitive(prim)
+        const b = k.selectionBounds()
+        return b.max.map((v: number, i: number) => +(v - b.min[i]).toFixed(4))
+      },
+      { prim, cam, baseScale },
+    )
+  // 上面 0.37 × 0.62 → 0.35 × 0.6、高さは短い方の倍率で 0.35
+  expect(await add('cube', [1, 6, 2], [0.37, 1, 0.62])).toEqual([0.35, 0.35, 0.6])
+  // 正面（+Z）: 面 0.37 × 1 → 錐（先端 +Z）は 0.35 × 1、奥行き方向は 1 × 0.35 = 0.35
+  expect(await add('cone', [1, 2, 5], [0.37, 1, 0.62])).toEqual([0.35, 1, 0.35])
+  // 高さが半分の星（1 : 0.5 : 1）は縦横比を保つ
+  expect(await add('star', [1, 6, 2], [2, 1, 2])).toEqual([2, 1, 2])
+  // 面が 5cm 未満でも最小 5cm
+  expect(await add('cube', [1, 6, 2], [0.03, 1, 0.03])).toEqual([0.05, 0.05, 0.05])
+})
