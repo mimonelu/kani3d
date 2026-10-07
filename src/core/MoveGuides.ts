@@ -1,7 +1,8 @@
 /**
  * 移動中のガイド表示（見た目のみ。スナップ挙動は変えない）
  *   A. 接地点: 真下に落ちる位置（床か、真下にあるオブジェクトの天面）に外枠の足跡と、そこまでの縦線
- *   C. 接触面: 別のオブジェクトの面に接したら、接している範囲を薄く塗り、その面の中心を通る縦横の線と輪郭
+ *   C. 接触面: 別のオブジェクトの面に接したら、接している範囲を薄く塗り、相手の面（黄）と掴んでいる側の面（水色）に
+ *      それぞれの中心を通る縦横の線と輪郭を描く（中心線同士の位置関係で揃っているか分かる）
  * 判定は外枠（AABB）で行う。他のオブジェクトの外枠はドラッグ開始時に一度だけ計算する。
  */
 import {
@@ -10,7 +11,6 @@ import {
   DoubleSide,
   Float32BufferAttribute,
   Group,
-  LineBasicMaterial,
   LineDashedMaterial,
   LineSegments,
   Mesh,
@@ -18,6 +18,9 @@ import {
   Vector3,
   type Object3D,
 } from 'three'
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 
 const FOOT_COLOR = '#4dd2ff'
 const CONTACT_COLOR = '#ffcf33'
@@ -25,34 +28,44 @@ const CONTACT_COLOR = '#ffcf33'
 const TOUCH_EPS = 1e-3
 
 const overlay = { depthTest: false, depthWrite: false, transparent: true }
+/** 画面上の線の太さ (px) */
+const LINE_PX = 2
+
+const thickLine = (color: string) => new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({ color, linewidth: LINE_PX, ...overlay }))
 
 export class MoveGuides {
   readonly root = new Group()
   private others: Box3[] = []
-  private readonly footLines: LineSegments
+  private readonly footLines = thickLine(FOOT_COLOR)
   private readonly dropLine: LineSegments
-  private readonly contactLines: LineSegments
+  private readonly contactLines = thickLine(CONTACT_COLOR)
+  /** 掴んでいるオブジェクト側の接触面の中心線・輪郭 */
+  private readonly movingLines = thickLine(FOOT_COLOR)
+  private debug = { footprintY: null as number | null, drop: false, contacts: 0 }
   private readonly contactFill: Mesh
 
   constructor() {
     this.root.name = 'move-guides'
-    this.footLines = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: FOOT_COLOR, ...overlay, opacity: 0.9 }))
     this.dropLine = new LineSegments(
       new BufferGeometry(),
       new LineDashedMaterial({ color: FOOT_COLOR, dashSize: 0.04, gapSize: 0.03, ...overlay, opacity: 0.9 }),
     )
-    this.contactLines = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: CONTACT_COLOR, ...overlay }))
     this.contactFill = new Mesh(
       new BufferGeometry(),
       new MeshBasicMaterial({ color: CONTACT_COLOR, ...overlay, opacity: 0.28, side: DoubleSide }),
     )
-    for (const o of [this.footLines, this.dropLine, this.contactLines, this.contactFill]) {
+    for (const o of [this.footLines, this.dropLine, this.contactLines, this.movingLines, this.contactFill]) {
       o.renderOrder = 990
       o.raycast = () => {}
       o.frustumCulled = false
       this.root.add(o)
     }
     this.root.visible = false
+  }
+
+  /** 太線の描画に必要な画面サイズ（px） */
+  setResolution(width: number, height: number): void {
+    for (const l of [this.footLines, this.contactLines, this.movingLines]) l.material.resolution.set(width, height)
   }
 
   /** ドラッグ開始: 動かないオブジェクトの外枠を控える */
@@ -94,13 +107,15 @@ export class MoveGuides {
     const c = box.getCenter(new Vector3())
     // 足跡（外枠の底面の輪郭）＋中心の十字
     const s = Math.min(max.x - min.x, max.z - min.z) * 0.15
-    setLines(this.footLines, [
+    this.debug.footprintY = y
+    setThick(this.footLines, [
       [min.x, y, min.z], [max.x, y, min.z], [max.x, y, min.z], [max.x, y, max.z],
       [max.x, y, max.z], [min.x, y, max.z], [min.x, y, max.z], [min.x, y, min.z],
       [c.x - s, y, c.z], [c.x + s, y, c.z], [c.x, y, c.z - s], [c.x, y, c.z + s],
     ])
     // 底面の中心から接地点までの縦線（接地しているときは消える）
-    setLines(this.dropLine, min.y - land > TOUCH_EPS ? [[c.x, min.y, c.z], [c.x, y, c.z]] : [])
+    this.debug.drop = min.y - land > TOUCH_EPS
+    setLines(this.dropLine, this.debug.drop ? [[c.x, min.y, c.z], [c.x, y, c.z]] : [])
     this.dropLine.computeLineDistances()
   }
 
@@ -108,6 +123,7 @@ export class MoveGuides {
 
   private updateContacts(box: Box3): void {
     const lines: number[][] = []
+    const moving: number[][] = []
     const quads: number[][] = []
     for (const o of this.others) {
       for (const axis of ['x', 'y', 'z'] as const) {
@@ -136,28 +152,41 @@ export class MoveGuides {
         const cu = (o.min[u] + o.max[u]) / 2
         const cv = (o.min[v] + o.max[v]) / 2
         lines.push(P(o.min[u], cv), P(o.max[u], cv), P(cu, o.min[v]), P(cu, o.max[v]))
-        // 相手の面の輪郭
-        lines.push(
-          P(o.min[u], o.min[v]), P(o.max[u], o.min[v]), P(o.max[u], o.min[v]), P(o.max[u], o.max[v]),
-          P(o.max[u], o.max[v]), P(o.min[u], o.max[v]), P(o.min[u], o.max[v]), P(o.min[u], o.min[v]),
-        )
+        lines.push(...faceOutline(P, o, u, v))
+        // 掴んでいる側の接触面にも同じく中心線と輪郭
+        const mu = (box.min[u] + box.max[u]) / 2
+        const mv = (box.min[v] + box.max[v]) / 2
+        moving.push(P(box.min[u], mv), P(box.max[u], mv), P(mu, box.min[v]), P(mu, box.max[v]))
+        moving.push(...faceOutline(P, box, u, v))
       }
     }
-    setLines(this.contactLines, lines)
+    setThick(this.contactLines, lines)
+    setThick(this.movingLines, moving)
+    this.debug.contacts = quads.length / 6
     this.contactFill.geometry.dispose()
     this.contactFill.geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute(quads.flat(), 3))
   }
 
   /** テスト・デバッグ用: 表示中のガイドの要約 */
   debugState(): { visible: boolean; footprintY: number | null; drop: boolean; contacts: number } {
-    const fp = this.footLines.geometry.getAttribute('position')
-    return {
-      visible: this.root.visible,
-      footprintY: fp && fp.count ? fp.getY(0) : null,
-      drop: (this.dropLine.geometry.getAttribute('position')?.count ?? 0) > 0,
-      contacts: (this.contactFill.geometry.getAttribute('position')?.count ?? 0) / 6,
-    }
+    return { visible: this.root.visible, ...this.debug }
   }
+}
+
+/** 面の輪郭（4 辺） */
+function faceOutline(P: (u: number, v: number) => number[], b: Box3, u: 'x' | 'y' | 'z', v: 'x' | 'y' | 'z'): number[][] {
+  return [
+    P(b.min[u], b.min[v]), P(b.max[u], b.min[v]), P(b.max[u], b.min[v]), P(b.max[u], b.max[v]),
+    P(b.max[u], b.max[v]), P(b.min[u], b.max[v]), P(b.min[u], b.max[v]), P(b.min[u], b.min[v]),
+  ]
+}
+
+/** 太線（画面上 LINE_PX）。空なら非表示 */
+function setThick(obj: LineSegments2, pts: number[][]): void {
+  obj.visible = pts.length > 0
+  if (!pts.length) return
+  obj.geometry.dispose()
+  obj.geometry = new LineSegmentsGeometry().setPositions(pts.flat())
 }
 
 function setLines(obj: LineSegments, pts: number[][]): void {

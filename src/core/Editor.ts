@@ -266,6 +266,7 @@ export class Editor {
     const w = this.container.clientWidth || 1
     const h = this.container.clientHeight || 1
     this.renderer.setSize(w, h)
+    this.guides.setResolution(w, h)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
   }
