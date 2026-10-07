@@ -1,7 +1,7 @@
 /**
  * 移動中のガイド表示（見た目のみ。スナップ挙動は変えない）
  *   A. 接地点: 真下に落ちる位置（床か、真下にあるオブジェクトの天面）に外枠の足跡と、そこまでの縦線
- *   C. 接触面: 別のオブジェクトの面に接したら、接している範囲を薄く塗り、その面に移動物の中心を通る縦横の線
+ *   C. 接触面: 別のオブジェクトの面に接したら、接している範囲を薄く塗り、その面の中心を通る縦横の線と輪郭
  * 判定は外枠（AABB）で行う。他のオブジェクトの外枠はドラッグ開始時に一度だけ計算する。
  */
 import {
@@ -109,7 +109,6 @@ export class MoveGuides {
   private updateContacts(box: Box3): void {
     const lines: number[][] = []
     const quads: number[][] = []
-    const c = box.getCenter(new Vector3())
     for (const o of this.others) {
       for (const axis of ['x', 'y', 'z'] as const) {
         // 面が接している向き（移動物の max が相手の min、または min が相手の max）
@@ -133,9 +132,9 @@ export class MoveGuides {
           return p.toArray()
         }
         quads.push(P(u0, v0), P(u1, v0), P(u1, v1), P(u0, v0), P(u1, v1), P(u0, v1))
-        // 相手の面いっぱいに、移動物の中心を通る縦横の線
-        const cu = Math.min(Math.max(c[u], o.min[u]), o.max[u])
-        const cv = Math.min(Math.max(c[v], o.min[v]), o.max[v])
+        // 相手の面の中心を通る縦横の線（面に固定した目印。移動物の位置には追従しない）
+        const cu = (o.min[u] + o.max[u]) / 2
+        const cv = (o.min[v] + o.max[v]) / 2
         lines.push(P(o.min[u], cv), P(o.max[u], cv), P(cu, o.min[v]), P(cu, o.max[v]))
         // 相手の面の輪郭
         lines.push(
