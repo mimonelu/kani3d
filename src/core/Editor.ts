@@ -49,6 +49,7 @@ import { checkMesh, type MeshIssues } from './meshCheck'
 import { geometryFromMeshData, setSingleColor, triangleCount } from './meshData'
 import { DEFAULT_COLOR, paletteMaterials } from './palette'
 import { applyTriangleColors, meshPolygons, paintMeshData, primitiveTriColors } from './paint'
+import { onFontsChanged } from './fonts'
 import { buildPrimitiveGeometry, compactParams, getPrimitive, polyIdsOf, resolveParams, type PrimitiveParams } from './primitives'
 import type { MeshData, Quat, SceneDoc, SceneObjectData, Vec3 } from './types'
 
@@ -200,11 +201,39 @@ export class Editor {
     this.resizeObserver.observe(container)
     this.resize()
     this.history.reset(this.toData())
+    this.unsubscribeFonts = onFontsChanged(() => this.refreshPlaceholders())
     this.loop()
+  }
+
+  private readonly unsubscribeFonts: () => void
+
+  /**
+   * フォント待ちの代用形状で表示している文字を作り直す（フォント一覧の取得・読み込み完了時）。
+   * 位置は保存値（＝本来の形状の中心）のままでよいので動かさない。履歴・自動保存の対象外
+   */
+  private refreshPlaceholders(): void {
+    if (this.isDragging) return
+    let changed = false
+    for (const m of this.meshes) {
+      const ud = m.userData as ObjUserData
+      if (ud.kind !== 'primitive' || !m.geometry.userData.placeholder) continue
+      const g = primitiveGeometry(ud)
+      if (g.userData.placeholder) {
+        g.dispose()
+        continue
+      }
+      g.computeBoundingBox()
+      this.replaceGeometry(m, g)
+      changed = true
+    }
+    if (!changed) return
+    this.attachTransform()
+    this.emit()
   }
 
   dispose(): void {
     cancelAnimationFrame(this.frame)
+    this.unsubscribeFonts()
     this.resizeObserver.disconnect()
     const el = this.renderer.domElement
     el.removeEventListener('pointerdown', this.onPointerDown)

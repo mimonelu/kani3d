@@ -1,22 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { DEFAULT_COLOR, PALETTE } from '../core/palette'
 import ShapeOptions from './ShapeOptions.vue'
 import { PRIMITIVES, type PrimitiveDef } from '../core/primitives'
 import { renderPrimitiveThumbnails } from '../core/thumbnails'
-import { editorRef, state } from '../store'
+import { editorRef, fonts, state } from '../store'
 
 const activeColor = () => (state.paintMode ? state.currentColor : (state.selectionColor ?? state.currentColor))
 
 // サムネイルは既定色（白）固定。選択中のカラーとは連動させない
 const thumbs = ref<Record<string, string>>({})
-onMounted(() => {
+function renderThumbs() {
   try {
     thumbs.value = renderPrimitiveThumbnails(PALETTE[DEFAULT_COLOR].hex)
   } catch {
     /* WebGL 不可の環境ではラベルのみ */
   }
-})
+}
+onMounted(renderThumbs)
+// 文字のサムネイルはフォントが読み込まれたら描き直す
+watch(() => fonts.loaded, renderThumbs)
 
 const categories = computed(() => {
   const map = new Map<string, PrimitiveDef[]>()

@@ -4,6 +4,9 @@ import { mergeObjects } from './merge'
 import { checkMesh } from './meshCheck'
 import { geometryFromMeshData, setSingleColor } from './meshData'
 import { PRIMITIVES, buildPrimitiveGeometry, type PrimitiveParams } from './primitives'
+import { useTestFont } from './testFont'
+
+useTestFont()
 
 const prim = (id: string, color: number, pos: [number, number, number], rotY = 0, params?: PrimitiveParams) => {
   const geometry = setSingleColor(buildPrimitiveGeometry(id, params), color)
@@ -75,6 +78,7 @@ describe('mergeObjects', () => {
       { id: 'cone', params: { sides: 4 } },
       { id: 'sphere', params: { half: true } },
       { id: 'polyhedron', params: { faces: 8 } },
+      { id: 'text', params: { text: 'IOSi' } },
     ]
     for (const a of variants) {
       for (const b of ['cube', 'sphere', 'prism', 'wedge']) {

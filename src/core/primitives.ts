@@ -19,11 +19,14 @@ import {
   Vector2,
 } from 'three'
 import { mergeVertices, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { BASE_SIZE } from './constants'
+import { BASE_SIZE, SNAP, snapValue } from './constants'
+import { getFont, isFontLoaded, resolveFontName } from './fonts'
+import { fixTJunctions } from './merge'
 import { coplanarGroups } from './paint'
+import { textShapes } from './text'
 
 export type PrimitiveCategory = '基本' | '柱・錐' | '特殊'
-export type ParamValue = number | boolean
+export type ParamValue = number | boolean | string
 export type PrimitiveParams = Record<string, ParamValue>
 
 export type ParamDef =
@@ -31,17 +34,23 @@ export type ParamDef =
   | { key: string; label: string; type: 'ratio'; min: number; max: number; step: number; default: number }
   | { key: string; label: string; type: 'bool'; default: boolean }
   | { key: string; label: string; type: 'enum'; options: { value: number; label: string }[]; default: number }
+  /** 1 行の文字列。空白だけ・空は既定値 */
+  | { key: string; label: string; type: 'text'; maxLength: number; default: string }
+  /** ローカルフォントの PostScript 名（'' は自動。core/fonts.ts） */
+  | { key: string; label: string; type: 'font'; default: string }
 
 export interface PrimitiveDef {
   id: string
   label: string
   category: PrimitiveCategory
   params: ParamDef[]
-  /** 正規化後のバウンディングボックス (m) */
-  size: (p: PrimitiveParams) => [number, number, number]
+  /** 正規化後のバウンディングボックス (m)。natural は create した形状の大きさ */
+  size: (p: PrimitiveParams, natural: [number, number, number]) => [number, number, number]
   /** 出力法線を滑らかにするか（クリース角 60°） */
   smooth: (p: PrimitiveParams) => boolean
   create: (p: PrimitiveParams) => BufferGeometry
+  /** 形状が外部の状態（読み込み済みフォント）にも依存するとき、キャッシュのキーに足す値 */
+  cacheKey?: (p: PrimitiveParams) => string
   /**
    * ペイント単位のポリゴンの決め方。
    * coplanar（既定）: 同一平面でつながった三角形をまとめる（側面の四角形・上下の多角形面など）
@@ -125,6 +134,28 @@ function starGeometry(p: PrimitiveParams): BufferGeometry {
 /** くさび（直角三角形の断面を Z 方向へ押し出し） */
 function wedgeGeometry(): BufferGeometry {
   return extrude(new Shape([new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 1)]), 1)
+}
+
+/**
+ * 文字: XY 平面の輪郭を +Z へ押し出し（1 em = BASE_SIZE、正面が +Z）。
+ * フォントが未読み込み（読み込み中・許可なし）の間は文字数ぶんの板で代用し、読み込み後に Editor が作り直す
+ */
+function textGeometry(p: PrimitiveParams): BufferGeometry {
+  const text = p.text as string
+  const depth = num(p, 'thickness') * S
+  const font = getFont(p.font as string)
+  let shapes: Shape[] = []
+  try {
+    if (font) shapes = textShapes(font, text, num(p, 'curveSegments'))
+  } catch (e) {
+    console.warn('text outline failed', e)
+  }
+  if (!shapes.length) {
+    const g = new BoxGeometry(Math.max(0.6, [...text].length * 0.6) * S, 0.7 * S, depth)
+    g.userData.placeholder = true
+    return g
+  }
+  return new ExtrudeGeometry(shapes, { depth, bevelEnabled: false, curveSegments: 1 }).scale(S, S, 1)
 }
 
 function polyhedronGeometry(p: PrimitiveParams): BufferGeometry {
@@ -251,6 +282,22 @@ export const PRIMITIVES: readonly PrimitiveDef[] = [
     smooth: () => false,
     create: polyhedronGeometry,
   },
+  {
+    id: 'text',
+    label: '文字',
+    category: '特殊',
+    params: [
+      { key: 'text', label: '文字列', type: 'text', maxLength: 64, default: 'Text' },
+      { key: 'font', label: 'フォント', type: 'font', default: '' },
+      { key: 'thickness', label: '厚み', type: 'ratio', min: 0.05, max: 1, step: 0.05, default: 0.2 },
+      { key: 'curveSegments', label: '曲線の分割数', type: 'int', min: 1, max: 8, default: 3 },
+    ],
+    // 文字の縦横比を保ったまま各辺を 5cm 単位に
+    size: (_p, natural) => natural.map((v) => Math.max(SNAP, snapValue(v))) as [number, number, number],
+    smooth: () => true,
+    create: textGeometry,
+    cacheKey: (p) => (isFontLoaded(p.font as string) ? resolveFontName(p.font as string) : '(placeholder)'),
+  },
 ]
 
 const byId = new Map(PRIMITIVES.map((p) => [p.id, p]))
@@ -262,6 +309,11 @@ export function resolveParams(id: string, raw: Partial<PrimitiveParams> = {}): P
   for (const d of getPrimitive(id)?.params ?? []) {
     const v = raw[d.key]
     if (d.type === 'bool') out[d.key] = typeof v === 'boolean' ? v : d.default
+    else if (d.type === 'text') {
+      // 改行・制御文字は空白に。空白だけなら何も表示されないので既定値
+      const t = typeof v === 'string' ? [...v.replace(/[\x00-\x1f\x7f]/g, ' ')].slice(0, d.maxLength).join('') : ''
+      out[d.key] = t.trim() ? t : d.default
+    } else if (d.type === 'font') out[d.key] = typeof v === 'string' ? v : d.default
     else if (d.type === 'enum') out[d.key] = d.options.some((o) => o.value === v) ? (v as number) : d.default
     else if (typeof v !== 'number' || !Number.isFinite(v)) out[d.key] = d.default
     else {
@@ -303,7 +355,10 @@ export const LEGACY_PRIMITIVES: Record<string, { id: string; params?: PrimitiveP
 
 // ---------------------------------------------------------------- 正規化
 
-/** 非インデックスの三角形から面積ゼロのものを除き、外向きの巻き方向に揃える */
+/**
+ * 非インデックスの三角形から面積ゼロのものを除き、外向きの巻き方向に揃える。
+ * 一直線上に並んだ穴の辺（文字に多い）では三角形分割が面積ゼロの三角形でつないでいるので、除いた後の T 字の隙間を分割して閉じる
+ */
 function cleanTriangles(g: BufferGeometry): BufferGeometry {
   const p = g.getAttribute('position').array
   const out: number[] = []
@@ -322,8 +377,9 @@ function cleanTriangles(g: BufferGeometry): BufferGeometry {
       for (let k = 0; k < 3; k++) [out[i + 3 + k], out[i + 6 + k]] = [out[i + 6 + k], out[i + 3 + k]]
     }
   }
+  const fixed = fixTJunctions({ pos: out, nor: new Array(out.length).fill(0), color: new Array(out.length / 9).fill(0) }).pos
   const r = new BufferGeometry()
-  r.setAttribute('position', new Float32BufferAttribute(out, 3))
+  r.setAttribute('position', new Float32BufferAttribute(fixed, 3))
   return r
 }
 
@@ -347,10 +403,11 @@ export function buildPrimitiveGeometry(id: string, rawParams?: Partial<Primitive
   const def = getPrimitive(id)
   if (!def) throw new Error(`unknown primitive: ${id}`)
   const params = resolveParams(id, rawParams)
-  const key = `${id}|${JSON.stringify(params)}`
+  const key = `${id}|${JSON.stringify(params)}|${def.cacheKey?.(params) ?? ''}`
   let base = cache.get(key)
   if (!base) {
     const src = def.create(params)
+    const placeholder = !!src.userData.placeholder
     let g = cleanTriangles(src.index ? src.toNonIndexed() : src)
     src.dispose()
     // バウンディングボックスを中心原点・指定サイズへ正規化
@@ -358,7 +415,7 @@ export function buildPrimitiveGeometry(id: string, rawParams?: Partial<Primitive
     const bb = g.boundingBox!
     const sz = bb.getSize(bb.max.clone())
     g.translate(-bb.min.x - sz.x / 2, -bb.min.y - sz.y / 2, -bb.min.z - sz.z / 2)
-    const size = def.size(params)
+    const size = def.size(params, [sz.x, sz.y, sz.z])
     g.scale(size[0] / sz.x, size[1] / sz.y, size[2] / sz.z)
     // ポリゴン番号（三角形の順序は以降の法線計算・溶接でも保たれる）
     const triCount = g.getAttribute('position').count / 3
@@ -369,9 +426,11 @@ export function buildPrimitiveGeometry(id: string, rawParams?: Partial<Primitive
     g = mergeVertices(g, 1e-6)
     g.computeBoundingBox()
     g.userData.polyIds = polyIds
+    if (placeholder) g.userData.placeholder = true
     base = g
     if (cache.size > 200) cache.clear() // スライダー操作で無制限に増えないように
-    cache.set(key, base)
+    // 代用形状はキャッシュしない（次の呼び出しでフォントの読み込みを再び試みるため）
+    if (!placeholder) cache.set(key, base)
   }
   const out = base.clone()
   out.clearGroups()

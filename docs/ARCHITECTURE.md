@@ -15,7 +15,8 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 ## どこを触るか
 | やりたいこと | ファイル |
 |---|---|
-| プリミティブ追加・形状オプション | `core/primitives.ts`（`PRIMITIVES` に定義を追加。`params` に ParamDef を書けば UI〈`components/ShapeOptions.vue`〉は自動生成。bbox 正規化・巻き方向・法線は自動。`primitives.test.ts` が全パラメータの端値で閉じた形状かを検証） |
+| プリミティブ追加・形状オプション | `core/primitives.ts`（`PRIMITIVES` に定義を追加。`params` に ParamDef を書けば UI〈`components/ShapeOptions.vue`〉は自動生成。bbox 正規化・巻き方向・法線・面積ゼロ三角形を除いた後の T 字修復は自動。`size` は create した形状の大きさも受け取る〈文字は縦横比を保って 5cm 単位〉。ParamDef は int / ratio / bool / enum / text / font。`primitives.test.ts` が全パラメータの端値で閉じた形状かを検証） |
+| 文字プリミティブ | `core/fonts.ts`（Local Font Access API〈Chromium のみ〉で一覧取得・読み込み。.ttc は該当フォントだけ切り出して opentype.js へ。起動時は許可済みのときだけ黙って取得、未許可なら形状オプションのボタンから要求）、`core/text.ts`（輪郭 → Clipper で非ゼロ和集合 → 0.1mm 内側へ縮めて点接触を分離 → Shape）、押し出しは `primitives.ts` の `textGeometry`。フォント未読み込みの間は代用の板（`geometry.userData.placeholder`、キャッシュしない）を出し、読み込み完了で `Editor.refreshPlaceholders` が作り直す（位置・履歴は変えない）。フォント切替は `ensureFont` で読み込んでから適用。テストは `core/testFont.ts` のメモリ上フォント |
 | 既存オブジェクトの形状変更 | `Editor.setPrimitiveParams`（底面の高さを保って作り直す。スライダー操作中は commit=false でプレビュー） |
 | ポリゴン単位のペイント | `core/paint.ts`（三角形ごとの色 → index を色順に並べ替えて groups 化）、`Editor.setPaintMode / paintHit`。ペイント中の E キーはカーソル下を基本色に戻す（`setErasing`。結合物は面積最大の色、`baseColorOf`）。ポリゴン番号はプリミティブ生成時に `geometry.userData.polyIds`（`PrimitiveDef.polygons`: 同一平面でつながった三角形 or 立方体のマス目）、結合物は `meshPolygons`（同一平面でつながった三角形） |
 | 単体の面数最適化 | `Editor.optimizeSelected`（オブジェクトのローカル座標で 1 入力の `mergeObjects` を通す。位置・回転・拡縮は保持。最適化前の形は `optimizedFrom` に残し、ボタンは結合と同様に切り替え式で「最適化解除」で戻す〈`store.optimizeMode`〉。結合物の `sources` は原点のずれ分を補正して引き継ぐので結合解除も可能） |

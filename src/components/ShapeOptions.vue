@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { ensureFont, isFontFailed, isFontLoaded, requestLocalFonts, resolveFontName } from '../core/fonts'
 import { getPrimitive, type ParamDef, type ParamValue } from '../core/primitives'
-import { editorRef, state } from '../store'
+import { editorRef, fonts, state } from '../store'
 
 /** 単独選択中のプリミティブの形状オプション。スライダー操作中はプレビューのみで、離したときに履歴へ積む */
 const target = computed(() => {
@@ -15,6 +16,54 @@ function set(d: ParamDef, value: ParamValue, commit: boolean) {
 }
 const fmt = (d: ParamDef, v: ParamValue) => (d.type === 'ratio' ? `${Math.round((v as number) * 100)}%` : String(v))
 const onRange = (d: ParamDef, e: Event, commit: boolean) => set(d, Number((e.target as HTMLInputElement).value), commit)
+
+// 文字列は入力中の値を手元に持つ（空にすると形状は既定値になるが、入力欄まで書き換えると打ち直せないため）。
+// 確定（Enter・フォーカス外し）で履歴に積み、入力欄を実際の値（空なら既定値）に戻す
+const drafts = ref<Record<string, string>>({})
+const editing = ref<string | null>(null)
+watch(
+  () => target.value?.params,
+  (p) => {
+    if (!p) return
+    for (const [k, v] of Object.entries(p)) if (typeof v === 'string' && editing.value !== k) drafts.value[k] = v
+  },
+  { immediate: true },
+)
+const onText = (d: ParamDef, e: Event) => {
+  editing.value = d.key
+  drafts.value[d.key] = (e.target as HTMLInputElement).value
+  set(d, drafts.value[d.key], false)
+}
+const onTextCommit = (d: ParamDef) => {
+  editing.value = null
+  set(d, drafts.value[d.key], true)
+  drafts.value[d.key] = String(target.value?.params[d.key] ?? '')
+}
+
+/** フォントは読み込んでから切り替える（読み込み中の代用の板で底面の高さを合わせるとずれるため） */
+async function setFont(d: ParamDef, name: string) {
+  const id = state.selection[0]
+  await ensureFont(name)
+  if (state.selection.length === 1 && state.selection[0] === id) set(d, name, true)
+}
+
+/** フォント欄の補足（読み込み中・未取得など） */
+const fontNote = computed(() => {
+  void fonts.loaded
+  const name = target.value?.params.font as string | undefined
+  if (name === undefined || isFontLoaded(name)) return ''
+  if (fonts.status === 'unsupported') return 'このブラウザはローカルフォントを読めません（Chrome / Edge が必要）。代わりに板を表示しています'
+  if (fonts.status === 'denied') return 'フォントの利用が許可されていません。代わりに板を表示しています'
+  if (fonts.status !== 'ready') return ''
+  const resolved = resolveFontName(name)
+  if (!fonts.list.some((f) => f.postscriptName === resolved)) return `フォント ${resolved || name} がありません。代わりに板を表示しています`
+  return isFontFailed(name) ? 'このフォントは読み込めませんでした。代わりに板を表示しています' : '読み込み中…'
+})
+const autoLabel = computed(() => {
+  void fonts.loaded
+  const n = resolveFontName('')
+  return `自動${n ? `（${fonts.list.find((f) => f.postscriptName === n)?.fullName ?? n}）` : ''}`
+})
 </script>
 
 <template>
@@ -42,6 +91,32 @@ const onRange = (d: ParamDef, e: Event, commit: boolean) => set(d, Number((e.tar
           />
           <span class="value">{{ fmt(d, target.params[d.key]) }}</span>
         </template>
+        <input
+          v-else-if="d.type === 'text'"
+          class="wide"
+          type="text"
+          :data-param="d.key"
+          :maxlength="d.maxLength"
+          :placeholder="d.default"
+          :value="drafts[d.key]"
+          @input="onText(d, $event)"
+          @change="onTextCommit(d)"
+          @keydown.enter="($event.target as HTMLInputElement).blur()"
+        />
+        <span v-else-if="d.type === 'font'" class="wide font">
+          <button v-if="fonts.status === 'idle'" @click.prevent="requestLocalFonts()">ローカルフォントを読み込む</button>
+          <select
+            v-else-if="fonts.status === 'ready'"
+            :data-param="d.key"
+            :value="target.params[d.key]"
+            @change="setFont(d, ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">{{ autoLabel }}</option>
+            <option v-for="f in fonts.list" :key="f.postscriptName" :value="f.postscriptName">{{ f.fullName }}</option>
+          </select>
+          <span v-else class="current">{{ resolveFontName(String(target.params[d.key])) || '（なし）' }}</span>
+          <small v-if="fontNote">{{ fontNote }}</small>
+        </span>
         <input
           v-else-if="d.type === 'bool'"
           type="checkbox"
@@ -105,6 +180,44 @@ h3 {
 input[type='range'] {
   width: 100%;
   accent-color: var(--accent);
+}
+.wide {
+  grid-column: span 2;
+  min-width: 0;
+}
+input[type='text'] {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+.font {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.font select {
+  width: 100%;
+}
+.font button {
+  background: var(--button);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.font button:hover {
+  background: var(--button-hover);
+}
+.font .current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.font small {
+  color: var(--text-dim);
+  font-size: 11px;
 }
 input[type='checkbox'] {
   justify-self: start;

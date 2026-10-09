@@ -211,6 +211,25 @@ test('結合物の検査結果表示と X線表示（GLB には影響しない�
   expect(await page.evaluate(() => (window as any).__kani.scene.getObjectByName('結合オブジェクト').children.length)).toBe(0)
 })
 
+test('文字: 文字列を変更でき、空にすると既定の Text になる（入力中は空のまま打ち直せる）', async ({ page }) => {
+  await page.locator('[data-primitive="text"]').click()
+  const input = page.locator('.shape-options [data-param="text"]')
+  await expect(input).toHaveValue('Text')
+  await input.fill('かに')
+  await input.press('Enter')
+  expect((await sceneData(page))[0]).toMatchObject({ primitive: 'text', params: { text: 'かに' } })
+  // 入力中の Delete / Backspace はオブジェクト削除にならない
+  await input.fill('')
+  await input.press('Backspace')
+  await expect(input).toHaveValue('')
+  expect(await sceneData(page)).toHaveLength(1)
+  await input.press('Enter')
+  await expect(input).toHaveValue('Text')
+  expect((await sceneData(page))[0]).not.toHaveProperty('params.text')
+  await page.keyboard.press('Control+z')
+  expect((await sceneData(page))[0]).toMatchObject({ params: { text: 'かに' } })
+})
+
 test('形状オプション: 柱の角数・半分を変更でき、Undo できる', async ({ page }) => {
   await page.locator('[data-primitive="prism"]').click()
   const sides = page.locator('.shape-options [data-param="sides"]')

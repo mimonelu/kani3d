@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
 import { checkMesh } from './meshCheck'
-import { PRIMITIVES, buildPrimitiveGeometry, compactParams, polyIdsOf, resolveParams, type PrimitiveParams } from './primitives'
+import { registerFont } from './fonts'
+import { testFont } from './testFont'
+import { PRIMITIVES, buildPrimitiveGeometry, compactParams, polyIdsOf, resolveParams, type ParamDef, type PrimitiveParams } from './primitives'
+
+registerFont('TestFont', testFont(true))
 
 /** 各パラメータを既定・最小・最大・true/false・各選択肢に振った組み合わせ */
 function variants(id: string): PrimitiveParams[] {
@@ -10,12 +14,16 @@ function variants(id: string): PrimitiveParams[] {
   for (const d of def.params) {
     if (d.type === 'bool') out.push({ [d.key]: true })
     else if (d.type === 'enum') for (const o of d.options) out.push({ [d.key]: o.value })
+    else if (d.type === 'text') out.push({ [d.key]: 'IOSi' }, { [d.key]: ' ' }, { [d.key]: 'I O' })
+    else if (d.type === 'font') continue
     else out.push({ [d.key]: d.min }, { [d.key]: d.max })
   }
   // 2 つ以上のパラメータを同時に端に寄せた組み合わせも
   if (def.params.length > 1) {
-    out.push(Object.fromEntries(def.params.map((d) => [d.key, d.type === 'bool' ? true : d.type === 'enum' ? d.default : d.min])))
-    out.push(Object.fromEntries(def.params.map((d) => [d.key, d.type === 'bool' ? true : d.type === 'enum' ? d.default : d.max])))
+    const edge = (d: ParamDef, max: boolean) =>
+      d.type === 'bool' ? true : d.type === 'int' || d.type === 'ratio' ? (max ? d.max : d.min) : d.default
+    out.push(Object.fromEntries(def.params.map((d) => [d.key, edge(d, false)])))
+    out.push(Object.fromEntries(def.params.map((d) => [d.key, edge(d, true)])))
   }
   return out
 }
@@ -25,8 +33,11 @@ describe('primitives', () => {
     for (const params of variants(p.id)) {
       it(`${p.id} ${JSON.stringify(params)}: 指定サイズに正規化され、閉じた外向きの形状`, () => {
         const g = buildPrimitiveGeometry(p.id, params)
+        expect(g.userData.placeholder).toBeFalsy()
         const size = g.boundingBox!.getSize(new Vector3())
-        expect(size.toArray().map((v) => +v.toFixed(5))).toEqual(p.size(resolveParams(p.id, params)))
+        const sz = size.toArray().map((v) => +v.toFixed(5))
+        expect(sz).toEqual(p.size(resolveParams(p.id, params), sz as [number, number, number]))
+        for (const v of sz) expect(Math.abs(v / 0.05 - Math.round(v / 0.05))).toBeLessThan(1e-6)
         const pos = g.getAttribute('position')
         const idx = Array.from(g.index!.array)
         let vol = 0
@@ -51,6 +62,26 @@ describe('primitives', () => {
     expect(resolveParams('pipe', { thickness: 0.43 })).toEqual({ sides: 16, thickness: 0.45 })
     expect(compactParams('prism', resolveParams('prism', { sides: 6 }))).toEqual({ sides: 6 })
     expect(compactParams('prism', resolveParams('prism'))).toBeUndefined()
+    expect(resolveParams('text', { text: '' }).text).toBe('Text')
+    expect(resolveParams('text', { text: ' \n ' }).text).toBe('Text')
+    expect(resolveParams('text', { text: 'a\nb' }).text).toBe('a b')
+    expect(resolveParams('text', { text: 'x'.repeat(100) }).text).toHaveLength(64)
+    expect(compactParams('text', resolveParams('text', { text: 'Hi', font: 'X' }))).toEqual({ text: 'Hi', font: 'X' })
+  })
+
+  it('文字: 穴は輪郭の包含関係で決まる（巻き方向が逆のフォントでも同じ）', () => {
+    const ids = () => new Set(polyIdsOf(buildPrimitiveGeometry('text', { text: 'O', font: 'TestFont' }))).size
+    const a = ids()
+    registerFont('TestFont', testFont(false))
+    const b = ids()
+    registerFont('TestFont', testFont(true))
+    // 表・裏・外周 4 面・穴の内周 4 面
+    expect([a, b]).toEqual([10, 10])
+  })
+
+  it('文字: フォントが無いときは代用の板（キャッシュしない）', () => {
+    const g = buildPrimitiveGeometry('text', { text: 'IO', font: 'NoSuchFont' })
+    expect(g.userData.placeholder).toBe(true)
   })
 })
 

@@ -2,6 +2,7 @@
 import { computed, markRaw, reactive, shallowRef } from 'vue'
 import type { Editor, EditorState } from './core/Editor'
 import { downloadBlob, FILE_EXT, parseDoc, stringifyDoc } from './core/io'
+import { fontStatus, initLocalFonts, localFonts, onFontsChanged, type FontStatus, type LocalFontInfo } from './core/fonts'
 import { DEFAULT_COLOR } from './core/palette'
 
 export const editorRef = shallowRef<Editor | null>(null)
@@ -34,6 +35,14 @@ export const ui = reactive({
   helpOpen: false,
   renderOpen: false,
   openRequest: 0,
+})
+
+/** ローカルフォントの状態（core/fonts.ts の写し）。loaded は読み込み完了のたびに増える */
+export const fonts = reactive({ status: 'idle' as FontStatus, list: [] as LocalFontInfo[], loaded: 0 })
+onFontsChanged(() => {
+  fonts.status = fontStatus()
+  if (fonts.list.length !== localFonts().length) fonts.list = localFonts()
+  fonts.loaded++
 })
 
 /** ファイルを開くダイアログを要求（ToolBar が監視してファイル選択を開く） */
@@ -92,6 +101,7 @@ export function bindEditor(editor: Editor): void {
   }
   savedRevision = editor.revision
   Object.assign(state, editor.currentState())
+  void initLocalFonts()
 }
 
 /** エディタ表示のフラット / スムーズ切替（ブラウザに記憶） */
