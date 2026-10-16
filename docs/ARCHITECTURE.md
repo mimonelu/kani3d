@@ -40,6 +40,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | UI 配色（ダークテーマ） | `style.css` の CSS 変数、シーン背景・グリッド色は `Editor.setupLightsAndGround` |
 | 画像出力（PNG） | `Editor.renderImage / renderPng / presetCamera`（専用の WebGLRenderer で描画。「全体を収める」は全頂点を投影して余白 px ちょうどに収まるカメラ位置を解析的に求める。選択枠・ハンドル・X線・ペイント強調は隠し、グリッドは任意）、UI は `components/RenderDialog.vue` |
 | ファイル操作・自動保存（localStorage） | `store.ts`（保存と GLB 出力は File System Access API 対応ブラウザなら前回のファイルへ上書き（GLB は Shift+クリック、保存は Ctrl+Shift+S で選び直し）、ファイル名欄を変えると別ファイル扱い。非対応ならダウンロード。`Editor.revision` が変わったときだけ保存。読めない自動保存は `kani3d:autosave.bak` に退避） |
+| ファイルのドラッグ&ドロップで開く（画面全体がドロップ先。対応ブラウザでは `getAsFileSystemHandle` でハンドルも取り、以後の保存を上書きに） | `App.vue` の `onDrop` → `store.openSceneFile` |
 
 ## データモデル
 - 永続データは `SceneObjectData`（`types.ts`）: `primitive`（種類＋単色）か `mesh`（結合結果の頂点データ `MeshData`）。どちらも position / quaternion / scale を持つ。

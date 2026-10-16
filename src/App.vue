@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { FILE_EXT } from './core/io'
 import SidePanel from './components/SidePanel.vue'
 import ToolBar from './components/ToolBar.vue'
 import ViewportPane from './components/ViewportPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
 import RenderDialog from './components/RenderDialog.vue'
-import { editorRef, requestOpen, saveScene, state, toggleMerge, ui } from './store'
+import { editorRef, notify, openSceneFile, requestOpen, saveScene, state, toggleMerge, ui } from './store'
 
 const isTextEntry = (t: HTMLElement) =>
   t.tagName === 'TEXTAREA' ||
@@ -79,12 +80,55 @@ const endErase = (e?: KeyboardEvent) => {
 }
 const onBlur = () => endErase()
 
+/** 画面全体を .kani のドロップ先にする（対応ブラウザではハンドルも取り、以後の保存を上書きにする） */
+const dragging = ref(false)
+let dragDepth = 0
+const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files')
+function onDragEnter(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth++
+  dragging.value = true
+}
+function onDragOver(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  e.dataTransfer!.dropEffect = 'copy'
+}
+function onDragLeave(e: DragEvent) {
+  if (!hasFiles(e)) return
+  if (--dragDepth <= 0) (dragDepth = 0), (dragging.value = false)
+}
+async function onDrop(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth = 0
+  dragging.value = false
+  const i = [...e.dataTransfer!.files].findIndex((f) => /\.(kani|json)$/i.test(f.name))
+  if (i < 0) return notify(`${FILE_EXT} ファイルではありません`)
+  const file = e.dataTransfer!.files[i]
+  // DataTransfer はイベント中しか使えないので、ハンドル取得はここで同期的に開始しておく
+  const item = [...e.dataTransfer!.items].filter((it) => it.kind === 'file')[i]
+  const handlePromise = item?.getAsFileSystemHandle?.().catch(() => null)
+  if (state.objectCount !== 0 && !confirm('現在のシーンを破棄してファイルを開きますか？')) return
+  const handle = await handlePromise
+  await openSceneFile(file, handle?.kind === 'file' ? (handle as FileSystemFileHandle) : null)
+}
+
 onMounted(() => {
+  window.addEventListener('dragenter', onDragEnter)
+  window.addEventListener('dragover', onDragOver)
+  window.addEventListener('dragleave', onDragLeave)
+  window.addEventListener('drop', onDrop)
   window.addEventListener('keydown', onKey)
   window.addEventListener('keyup', endErase)
   window.addEventListener('blur', onBlur)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('dragenter', onDragEnter)
+  window.removeEventListener('dragover', onDragOver)
+  window.removeEventListener('dragleave', onDragLeave)
+  window.removeEventListener('drop', onDrop)
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('keyup', endErase)
   window.removeEventListener('blur', onBlur)
@@ -100,6 +144,7 @@ onBeforeUnmount(() => {
     </main>
     <HelpDialog />
     <RenderDialog />
+    <div v-if="dragging" class="drop-overlay">{{ FILE_EXT }} ファイルをドロップして開く</div>
   </div>
 </template>
 
@@ -108,6 +153,19 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
+}
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  color: var(--text);
+  background: rgb(0 0 0 / 0.5);
+  outline: 3px dashed var(--accent);
+  outline-offset: -12px;
+  pointer-events: none;
 }
 main {
   display: flex;

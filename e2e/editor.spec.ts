@@ -182,6 +182,33 @@ test('保存→読み込み、GLB 出力（File System Access API 非対応時�
   expect(buf.subarray(0, 4).toString()).toBe('glTF')
 })
 
+test('.kani ファイルを画面にドロップして開く（.kani 以外は無視）', async ({ page }) => {
+  await page.locator('[data-primitive="cube"]').click()
+  const doc = await page.evaluate(() => ({ format: 'kani3d', version: 2, objects: (window as any).__kani.toData() }))
+  doc.objects.push({ ...doc.objects[0], position: [3, 0.5, 0] })
+  page.once('dialog', (d) => d.accept())
+  await page.getByRole('button', { name: '新規' }).click()
+
+  const drop = (name: string, text: string) =>
+    page.evaluate(
+      ([name, text]) => {
+        const dt = new DataTransfer()
+        dt.items.add(new File([text], name))
+        for (const type of ['dragenter', 'dragover', 'drop'])
+          document.querySelector('canvas')!.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }))
+      },
+      [name, text],
+    )
+  await drop('note.txt', 'hello')
+  await expect(page.getByText('.kani ファイルではありません')).toBeVisible()
+  expect(await sceneData(page)).toHaveLength(0)
+
+  await drop('dropped.kani', JSON.stringify(doc))
+  await expect.poll(async () => (await sceneData(page)).length).toBe(2)
+  await expect(page.locator('input[title="ファイル名"]')).toHaveValue('dropped')
+  await expect(page.locator('.drop-overlay')).toHaveCount(0)
+})
+
 test('File System Access API: 2 回目以降の保存は同じファイルに上書き、名前を変えたら別ファイル', async ({ page }) => {
   // 保存ピッカーをモック。返したハンドルへの書き込みを記録する
   await page.evaluate(() => {

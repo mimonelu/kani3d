@@ -18,3 +18,6 @@ interface FileSystemHandle {
   queryPermission?: (descriptor: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>
   requestPermission?: (descriptor: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>
 }
+interface DataTransferItem {
+  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>
+}

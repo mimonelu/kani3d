@@ -31,6 +31,7 @@ const keys: [string, string][] = [
   ['Home / Shift+F', 'すべてのオブジェクトが映るようにカメラを合わせる'],
   ['Ctrl+Z / Ctrl+Shift+Z・Ctrl+Y', '元に戻す / やり直し'],
   ['Ctrl+S / Ctrl+Shift+S / Ctrl+O', '保存（上書き） / 別名で保存 / 開く'],
+  ['.kani ファイルを画面にドロップ', '開く'],
   ['Esc（ドラッグ中）', '操作を取り消す'],
   ['?', 'このヘルプ'],
 ]
