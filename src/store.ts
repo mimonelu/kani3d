@@ -141,19 +141,41 @@ export function notify(message: string, ms = 2500): void {
  * あれば保存はこのファイルへの上書きになる。ファイル名欄を書き換えたら別ファイル扱い
  */
 let fileHandle: FileSystemFileHandle | null = null
+/** GLB 出力先。出力時のファイル名欄（forName）が変わっていなければ上書き */
+let glbTarget: { handle: FileSystemFileHandle; forName: string } | null = null
 const stem = (name: string) => name.replace(/\.(kani|json)$/i, '')
 
 const PICKER_TYPES = [{ description: 'kani3d シーン', accept: { 'application/json': [FILE_EXT] } }]
+const GLB_PICKER_TYPES = [{ description: 'glTF バイナリ', accept: { 'model/gltf-binary': ['.glb'] } }]
 
 export function newScene(): void {
   editorRef.value?.newScene()
   ui.banner = null
   ui.fileName = 'untitled'
   fileHandle = null
+  glbTarget = null
 }
 
 /** ダウンロード用ファイル名（パス区切りや使用できない文字を除去） */
 const safeName = () => ui.fileName.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim() || 'untitled'
+
+/**
+ * handle に書き込む（書き込み権限が切れていれば確認、拒否や handle なしなら保存先を選ばせる）。
+ * 書き込んだハンドルを返す。ピッカーのキャンセルは AbortError を投げる
+ */
+async function writeFile(
+  handle: FileSystemFileHandle | null,
+  data: FileSystemWriteChunkType,
+  picker: FilePickerOptions,
+): Promise<FileSystemFileHandle> {
+  if (handle && (await handle.queryPermission?.({ mode: 'readwrite' })) === 'prompt')
+    if ((await handle.requestPermission?.({ mode: 'readwrite' })) !== 'granted') handle = null
+  handle ??= await window.showSaveFilePicker!(picker)
+  const w = await handle.createWritable()
+  await w.write(data)
+  await w.close()
+  return handle
+}
 
 /** 保存。開いた／保存済みのファイルがあれば上書き、なければ保存先を選ぶ（非対応ブラウザはダウンロード） */
 export async function saveScene(saveAs = false): Promise<void> {
@@ -162,13 +184,8 @@ export async function saveScene(saveAs = false): Promise<void> {
   const text = stringifyDoc(ed.toDoc())
   if (!window.showSaveFilePicker) return downloadBlob(text, safeName() + FILE_EXT, 'application/json')
   try {
-    let handle = !saveAs && fileHandle && stem(fileHandle.name) === ui.fileName ? fileHandle : null
-    if (handle && (await handle.queryPermission?.({ mode: 'readwrite' })) === 'prompt')
-      if ((await handle.requestPermission?.({ mode: 'readwrite' })) !== 'granted') handle = null
-    handle ??= await window.showSaveFilePicker({ suggestedName: safeName() + FILE_EXT, types: PICKER_TYPES })
-    const w = await handle.createWritable()
-    await w.write(text)
-    await w.close()
+    const current = !saveAs && fileHandle && stem(fileHandle.name) === ui.fileName ? fileHandle : null
+    const handle = await writeFile(current, text, { suggestedName: safeName() + FILE_EXT, types: PICKER_TYPES })
     fileHandle = handle
     ui.fileName = stem(handle.name)
     notify(`${handle.name} に保存しました`)
@@ -195,6 +212,7 @@ export async function openSceneFile(file: File, handle: FileSystemFileHandle | n
     editorRef.value?.loadDoc(parseDoc(await file.text()))
     ui.fileName = stem(file.name)
     fileHandle = handle
+    glbTarget = null
     ui.banner = null
     notify(`${file.name} を読み込みました`)
   } catch (e) {
@@ -202,13 +220,20 @@ export async function openSceneFile(file: File, handle: FileSystemFileHandle | n
   }
 }
 
-export async function exportGlbFile(): Promise<void> {
+/** GLB 出力。2 回目以降は同じ出力先に上書き（saveAs かファイル名欄の変更で選び直す。非対応ブラウザはダウンロード） */
+export async function exportGlbFile(saveAs = false): Promise<void> {
   const ed = editorRef.value
   if (!ed) return
   if (state.objectCount === 0) return notify('オブジェクトがありません')
   try {
-    downloadBlob(await ed.exportGlb(), safeName() + '.glb', 'model/gltf-binary')
+    const glb = await ed.exportGlb()
+    if (!window.showSaveFilePicker) return downloadBlob(glb, safeName() + '.glb', 'model/gltf-binary')
+    const current = !saveAs && glbTarget?.forName === ui.fileName ? glbTarget.handle : null
+    const handle = await writeFile(current, glb, { suggestedName: safeName() + '.glb', types: GLB_PICKER_TYPES })
+    glbTarget = { handle, forName: ui.fileName }
+    notify(`${handle.name} に出力しました`)
   } catch (e) {
+    if ((e as DOMException).name === 'AbortError') return
     notify(`GLB 出力失敗: ${(e as Error).message}`)
   }
 }

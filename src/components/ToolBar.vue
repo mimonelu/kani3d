@@ -30,7 +30,7 @@ function confirmNew() {
       <button @click="confirmNew">新規</button>
       <button @click="openFile" title="Ctrl+O">開く</button>
       <button @click="saveScene()" title="Ctrl+S（別名保存は Ctrl+Shift+S）">保存</button>
-      <button @click="exportGlbFile">GLB出力</button>
+      <button title="2 回目以降は同じファイルに上書き（Shift+クリックで出力先を選び直す）" @click="exportGlbFile($event.shiftKey)">GLB出力</button>
       <button title="レンダリング結果を PNG で保存" @click="ui.renderOpen = true">画像出力</button>
       <input ref="fileInput" type="file" :accept="`${FILE_EXT},.json`" hidden @change="onFile" />
     </div>

@@ -218,6 +218,17 @@ test('File System Access API: 2 回目以降の保存は同じファイルに上
   await expect.poll(picks).toBe(2) // 名前を変えたら保存先を選び直す
   await page.keyboard.press('Control+Shift+s')
   await expect.poll(picks).toBe(3) // 別名で保存
+
+  // GLB 出力も同様（保存とは別の出力先を覚える）
+  const glb = page.getByRole('button', { name: 'GLB出力' })
+  await glb.click()
+  await expect.poll(picks).toBe(4)
+  await glb.click()
+  await expect.poll(async () => (await writes()).length).toBe(6)
+  expect(await picks()).toBe(4) // 2 回目は上書き
+  expect((await writes()).slice(-2).map((x) => x.name)).toEqual(['other.glb', 'other.glb'])
+  await glb.click({ modifiers: ['Shift'] })
+  await expect.poll(picks).toBe(5) // Shift+クリックで選び直す
 })
 
 test('結合物の検査結果表示と X線表示（GLB には影響しない）', async ({ page }) => {
