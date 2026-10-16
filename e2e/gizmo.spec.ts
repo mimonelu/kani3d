@@ -202,3 +202,32 @@ test('移動ガイド: 接地点（真下の天面・縦線）と接触面をド
   await page.mouse.up()
   expect((await guides()).visible).toBe(false)
 })
+
+test('寸法を持つプリミティブ（岩）は拡縮を寸法に移して作り直す（scale は 1 のまま）', async ({ page }) => {
+  await page.evaluate(() => {
+    const k = (window as any).__kani
+    k.deleteSelected()
+    k.addPrimitive('rock')
+  })
+  const h = (await handles(page))['scale:0,1,0']
+  await drag(page, h, { x: h.x, y: h.y - 120 })
+  const after = await page.evaluate(() => (window as any).__kani.toData()[0])
+  const b = await bounds(page)
+  expect(after.scale).toEqual([1, 1, 1])
+  expect(after.params.height).toBeGreaterThan(1.05)
+  expect(b.max[1] - b.min[1]).toBeCloseTo(after.params.height, 5)
+  expect(b.min[1]).toBeCloseTo(0, 5)
+
+  // ドラッグ中の Esc は元の形に戻す
+  const verts = () => page.evaluate(() => (window as any).__kani.currentState().selectionTriangles)
+  const tris = await verts()
+  const h2 = (await handles(page))['scale:1,0,0']
+  await page.mouse.move(h2.x, h2.y)
+  await page.mouse.down()
+  for (let i = 1; i <= 5; i++) await page.mouse.move(h2.x + i * 20, h2.y)
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  expect(await page.evaluate(() => (window as any).__kani.toData()[0])).toEqual(after)
+  expect(await bounds(page)).toEqual(b)
+  expect(await verts()).toBe(tris)
+})

@@ -17,7 +17,9 @@ import {
   TetrahedronGeometry,
   TorusGeometry,
   Vector2,
+  Vector3,
 } from 'three'
+import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js'
 import { mergeVertices, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { BASE_SIZE, SNAP, snapValue } from './constants'
 import { getFont, isFontLoaded, resolveFontName } from './fonts'
@@ -38,6 +40,10 @@ export type ParamDef =
   | { key: string; label: string; type: 'text'; maxLength: number; default: string }
   /** ローカルフォントの PostScript 名（'' は自動。core/fonts.ts） */
   | { key: string; label: string; type: 'font'; default: string }
+  /** 長さ (m)。5cm 単位 */
+  | { key: string; label: string; type: 'length'; min: number; max: number; default: number }
+  /** 乱数の種（整数。UI に振り直しボタン） */
+  | { key: string; label: string; type: 'seed'; min: number; max: number; default: number }
 
 export interface PrimitiveDef {
   id: string
@@ -57,6 +63,11 @@ export interface PrimitiveDef {
    * pairs: 生成順に 2 枚ずつ（分割した立方体のマス目）
    */
   polygons?: 'coplanar' | 'pairs'
+  /**
+   * 寸法を形状オプションに持つ（ローカル X/Y/Z の length パラメータのキー）。
+   * 拡縮ハンドルの結果は scale ではなくこの寸法に移して作り直す（引き伸ばさない。Editor.bakeScale）
+   */
+  dims?: [string, string, string]
 }
 
 const S = BASE_SIZE
@@ -157,6 +168,115 @@ function textGeometry(p: PrimitiveParams): BufferGeometry {
   }
   return new ExtrudeGeometry(shapes, { depth, bevelEnabled: false, curveSegments: 1 }).scale(S, S, 1)
 }
+
+/** 0〜1 の擬似乱数列（seed が同じなら同じ列。形状は params から毎回作り直すので Math.random は使えない） */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/**
+ * 岩: 楕円体の表面にほぼ等間隔に点を置いて面を張り、頂点をランダムにずらす。
+ * 寸法の比で引き伸ばさないよう点は楕円体の上でならし、揺れ幅は点の間隔を基準にする（どの縦横比でも面の大きさ・凸凹がそろう）。
+ * 面のつながりはずらす前の点（凸な楕円体の上なのですべて凸包の頂点になる）で決めるので、点が無駄にならず、へこみも作れる。
+ * 点の数・乱数列は寸法に依存しないので、寸法を変えても同じ岩がなめらかに伸び縮みする
+ */
+function rockGeometry(p: PrimitiveParams): BufferGeometry {
+  const r = [num(p, 'width') / 2, num(p, 'height') / 2, num(p, 'depth') / 2]
+  const n = num(p, 'detail')
+  const rand = mulberry32(num(p, 'seed') * 0x9e3779b1)
+  // 楕円体の表面積（Knud Thomsen の近似）→ 点 1 つあたりの間隔
+  const k = 1.6075
+  const [a, b, c] = r.map((v) => Math.pow(v, k))
+  const area = 4 * Math.PI * Math.pow((a * b + a * c + b * c) / 3, 1 / k)
+  const spacing = Math.sqrt(area / n)
+  const project = (v: Vector3) => v.divideScalar(Math.hypot(v.x / r[0], v.y / r[1], v.z / r[2]))
+  const normalAt = (v: Vector3) => new Vector3(v.x / r[0] ** 2, v.y / r[1] ** 2, v.z / r[2] ** 2).normalize()
+  // フィボナッチ球を楕円体へ写した初期配置
+  const golden = Math.PI * (3 - Math.sqrt(5))
+  const pts = Array.from({ length: n }, (_, i) => {
+    const y = 1 - (2 * (i + 0.5)) / n
+    const s = Math.sqrt(1 - y * y)
+    return new Vector3(Math.cos(i * golden) * s * r[0], y * r[1], Math.sin(i * golden) * s * r[2])
+  })
+  // 近い点どうしを接平面の方向に押し離して楕円体の上に戻す（回数固定・なめらかな力なので寸法に対して連続）。
+  // 距離には法線の違いも足す（薄い形で表と裏の点が厚み越しに押し合うと、全部が縁に集まって平らな輪になるため）
+  const reach = spacing * 2
+  const d = new Vector3()
+  for (let it = 0; it < RELAX_STEPS; it++) {
+    const push = pts.map(() => new Vector3())
+    const nrms = pts.map(normalAt)
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        d.subVectors(pts[i], pts[j])
+        const len = Math.hypot(d.length(), nrms[i].distanceTo(nrms[j]) * spacing)
+        if (len >= reach || len < 1e-12) continue
+        const f = (1 - len / reach) ** 2 / len
+        push[i].addScaledVector(d, f)
+        push[j].addScaledVector(d, -f)
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const nrm = nrms[i]
+      push[i].addScaledVector(nrm, -push[i].dot(nrm))
+      project(pts[i].addScaledVector(push[i], spacing * RELAX_RATE))
+    }
+  }
+  // 面のつながり
+  const index = new Map(pts.map((q, i) => [q, i]))
+  const tris: number[] = []
+  for (const f of new ConvexHull().setFromPoints(pts).faces) {
+    const loop: number[] = []
+    let e = f.edge
+    do {
+      loop.push(index.get(e.head().point)!)
+      e = e.next
+    } while (e !== f.edge)
+    for (let i = 1; i + 1 < loop.length; i++) tris.push(loop[0], loop[i], loop[i + 1])
+  }
+  // 揺らす: 接線方向（面の形を不揃いに）と法線方向（凸凹）。
+  // 薄い軸の方向の揺れは厚みに合わせて抑える（表と裏がすれ違って裏返らないように）
+  const rough = num(p, 'roughness') * ROCK_ROUGH * spacing
+  const jitter = num(p, 'jitter') * ROCK_JITTER * spacing
+  const thin = new Vector3(...r.map((v) => Math.min(1, (v * 0.3) / spacing)))
+  const offset = pts.map((q) => {
+    const v = new Vector3(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1)
+    const h = rand() * 2 - 1
+    const nrm = normalAt(q)
+    v.addScaledVector(nrm, -v.dot(nrm))
+    return v.multiplyScalar(jitter).addScaledVector(nrm, h * rough).multiply(thin)
+  })
+  // 揺らす前から大きく傾いた（裏返り・折れ返りかけた）面があれば、その頂点の揺れを半分にして繰り返す（細い三角形のそばなど）
+  const faceNormal = (v: (i: number) => Vector3, t: number) =>
+    new Vector3().subVectors(v(tris[t + 1]), v(tris[t])).cross(new Vector3().subVectors(v(tris[t + 2]), v(tris[t]))).normalize()
+  const baseNormals = Array.from({ length: tris.length / 3 }, (_, t) => faceNormal((i) => pts[i], t * 3))
+  const moved = pts.map((q, i) => q.clone().add(offset[i]))
+  for (let it = 0; it < 20; it++) {
+    const shrink = new Set<number>()
+    for (let t = 0; t < tris.length; t += 3) {
+      if (faceNormal((i) => moved[i], t).dot(baseNormals[t / 3]) < MAX_TILT_COS) for (let k = 0; k < 3; k++) shrink.add(tris[t + k])
+    }
+    if (!shrink.size) break
+    for (const i of shrink) moved[i].copy(pts[i]).addScaledVector(offset[i].multiplyScalar(0.5), 1)
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new Float32BufferAttribute(moved.flatMap((q) => q.toArray()), 3))
+  g.setIndex(tris)
+  return g
+}
+const RELAX_STEPS = 60
+const RELAX_RATE = 0.2
+/** 揺れ幅（点の間隔に対する割合）の上限 */
+const ROCK_ROUGH = 0.6
+const ROCK_JITTER = 0.35
+/** 揺らした面の傾きの上限（揺らす前の面の向きとの cos） */
+const MAX_TILT_COS = 0.3
 
 function polyhedronGeometry(p: PrimitiveParams): BufferGeometry {
   switch (num(p, 'faces')) {
@@ -283,6 +403,24 @@ export const PRIMITIVES: readonly PrimitiveDef[] = [
     create: polyhedronGeometry,
   },
   {
+    id: 'rock',
+    label: '岩',
+    category: '特殊',
+    params: [
+      { key: 'width', label: '幅', type: 'length', min: SNAP, max: 10, default: S },
+      { key: 'height', label: '高さ', type: 'length', min: SNAP, max: 10, default: S },
+      { key: 'depth', label: '奥行き', type: 'length', min: SNAP, max: 10, default: S },
+      { key: 'detail', label: '細かさ', type: 'int', min: 6, max: 120, default: 24 },
+      { key: 'roughness', label: '凸凹', type: 'ratio', min: 0, max: 1, step: 0.05, default: 0.5 },
+      { key: 'jitter', label: '不揃い', type: 'ratio', min: 0, max: 1, step: 0.05, default: 0.5 },
+      { key: 'seed', label: '乱数', type: 'seed', min: 1, max: 9999, default: 1 },
+    ],
+    size: (p) => [num(p, 'width'), num(p, 'height'), num(p, 'depth')],
+    smooth: () => false,
+    create: rockGeometry,
+    dims: ['width', 'height', 'depth'],
+  },
+  {
     id: 'text',
     label: '文字',
     category: '特殊',
@@ -318,7 +456,12 @@ export function resolveParams(id: string, raw: Partial<PrimitiveParams> = {}): P
     else if (typeof v !== 'number' || !Number.isFinite(v)) out[d.key] = d.default
     else {
       const c = Math.min(d.max, Math.max(d.min, v))
-      out[d.key] = d.type === 'int' ? Math.round(c) : Math.round(Math.round(c / d.step) * d.step * 1e6) / 1e6
+      out[d.key] =
+        d.type === 'int' || d.type === 'seed'
+          ? Math.round(c)
+          : d.type === 'length'
+            ? Math.max(d.min, snapValue(c))
+            : Math.round(Math.round(c / d.step) * d.step * 1e6) / 1e6
     }
   }
   return out

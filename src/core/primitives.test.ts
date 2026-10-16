@@ -21,7 +21,7 @@ function variants(id: string): PrimitiveParams[] {
   // 2 つ以上のパラメータを同時に端に寄せた組み合わせも
   if (def.params.length > 1) {
     const edge = (d: ParamDef, max: boolean) =>
-      d.type === 'bool' ? true : d.type === 'int' || d.type === 'ratio' ? (max ? d.max : d.min) : d.default
+      d.type === 'bool' ? true : 'min' in d ? (max ? d.max : d.min) : d.default
     out.push(Object.fromEntries(def.params.map((d) => [d.key, edge(d, false)])))
     out.push(Object.fromEntries(def.params.map((d) => [d.key, edge(d, true)])))
   }
@@ -82,6 +82,48 @@ describe('primitives', () => {
   it('文字: フォントが無いときは代用の板（キャッシュしない）', () => {
     const g = buildPrimitiveGeometry('text', { text: 'IO', font: 'NoSuchFont' })
     expect(g.userData.placeholder).toBe(true)
+  })
+})
+
+describe('岩', () => {
+  const dims = [
+    [1, 1, 1],
+    [4, 1, 1],
+    [1, 0.25, 1],
+    [0.3, 3, 0.3],
+    [2, 0.1, 2],
+    [0.05, 10, 10],
+    [0.1, 0.1, 3],
+    [1, 0.5, 0.7],
+  ]
+  it('どの縦横比・乱数でも、揺らした面が揺らす前の向きから裏返らない', () => {
+    const normals = (p: PrimitiveParams) => {
+      const g = buildPrimitiveGeometry('rock', p)
+      const pos = g.getAttribute('position')
+      const idx = g.index!.array
+      const out: Vector3[] = []
+      for (let i = 0; i < idx.length; i += 3) {
+        const [a, b, c] = [0, 1, 2].map((k) => new Vector3().fromBufferAttribute(pos, idx[i + k]))
+        out.push(b.sub(a).cross(c.sub(a)).normalize())
+      }
+      return out
+    }
+    for (const [width, height, depth] of dims) {
+      for (let seed = 1; seed <= 10; seed++) {
+        for (const detail of [6, 24, 120]) {
+          const base = normals({ width, height, depth, seed, detail, roughness: 0, jitter: 0 })
+          const moved = normals({ width, height, depth, seed, detail, roughness: 1, jitter: 1 })
+          const label = JSON.stringify({ width, height, depth, seed, detail })
+          expect(moved.length, label).toBe(base.length)
+          for (let i = 0; i < base.length; i++) expect(moved[i].dot(base[i]), label).toBeGreaterThan(0)
+        }
+      }
+    }
+  }, 30_000)
+
+  it('寸法を少し変えても面のつながりは同じ（なめらかに伸び縮み）', () => {
+    const tris = (width: number) => buildPrimitiveGeometry('rock', { width, seed: 5 }).index!.count
+    expect(tris(1.05)).toBe(tris(1))
   })
 })
 

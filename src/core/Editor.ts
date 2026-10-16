@@ -559,6 +559,7 @@ export class Editor {
       const bb = mesh.geometry.boundingBox!
       mesh.position.set(base.x, base.y - bb.min.y, base.z)
     }
+    this.bakeScale(mesh)
     this.objectRoot.add(mesh)
     this.snapBoxMin(mesh)
     this.setSelection([id])
@@ -712,6 +713,34 @@ export class Editor {
     }
     if (commit) this.commit()
     this.emit()
+  }
+
+  /**
+   * 寸法を形状オプションに持つプリミティブ（`PrimitiveDef.dims`。岩など）の拡縮を寸法へ移して作り直し、scale を 1 に戻す（引き伸ばさない）。
+   * preview（拡縮ドラッグ中）は scale を変えずに、新しい寸法で作った形状に 1/scale を掛けて見た目だけ合わせる。
+   * 塗りがあるものはポリゴン番号が変わるので対象外（引き伸ばしたまま）
+   */
+  private bakeScale(m: Mesh, preview = false): void {
+    const ud = m.userData as ObjUserData
+    if (ud.kind !== 'primitive' || ud.faceColors) return
+    const dims = getPrimitive(ud.primitive)?.dims
+    if (!dims) return
+    const s = m.scale
+    if (!preview && s.x === 1 && s.y === 1 && s.z === 1) return
+    const params = resolveParams(ud.primitive, {
+      ...ud.params,
+      ...Object.fromEntries(dims.map((k, i) => [k, (ud.params[k] as number) * Math.abs(s.getComponent(i))])),
+    })
+    const g = primitiveGeometry({ ...ud, params })
+    if (preview) {
+      g.scale(1 / s.x, 1 / s.y, 1 / s.z)
+      g.computeBoundingBox()
+    } else {
+      ud.params = params
+      s.set(1, 1, 1)
+    }
+    this.replaceGeometry(m, g)
+    m.updateMatrixWorld(true)
   }
 
   private replaceGeometry(m: Mesh, g: BufferGeometry): void {
@@ -1012,7 +1041,9 @@ export class Editor {
           id: newId(), // 複製した結合物を解除しても ID が重複しないよう振り直す
           ...toTransform(p, q, s),
         }
-        this.objectRoot.add(this.buildMesh(d))
+        const mesh = this.buildMesh(d)
+        this.bakeScale(mesh)
+        this.objectRoot.add(mesh)
         restored.push(d.id)
       }
       disposeMesh(m)
@@ -1241,7 +1272,9 @@ export class Editor {
       return
     }
     if (!p?.dragging) return
+    const scaled = this.gizmo.dragKind === 'scale' && this.transformTarget
     this.gizmo.cancelDrag()
+    if (scaled instanceof Mesh) this.bakeScale(scaled, true) // プレビューの形状を元の scale に合わせて作り直す
     this.guides.end()
     this.orbit.enabled = true
     this.dragInfo = ''
@@ -1332,6 +1365,7 @@ export class Editor {
     if (this.pointer?.dragging && this.gizmo.dragging) {
       const info = this.gizmo.updateDrag(this.raycaster.ray, e.shiftKey)
       const kind = this.gizmo.dragKind
+      if (kind === 'scale' && this.transformTarget instanceof Mesh) this.bakeScale(this.transformTarget, true)
       if ((kind === 'move' || kind === 'lift') && this.transformTarget) this.guides.update(this.transformTarget)
       if (info !== this.dragInfo) {
         this.dragInfo = info
@@ -1360,7 +1394,12 @@ export class Editor {
     const clicked = Math.hypot(e.clientX - p.x, e.clientY - p.y) <= 4
     if (p.dragging) {
       this.orbit.enabled = true
+      const scaled = this.gizmo.dragKind === 'scale' && this.transformTarget
       const changed = this.gizmo.endDrag()
+      if (scaled instanceof Mesh) {
+        this.bakeScale(scaled)
+        this.attachTransform()
+      }
       this.guides.end()
       this.dragInfo = ''
       const last = this.lastClick

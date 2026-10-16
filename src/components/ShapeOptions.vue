@@ -16,6 +16,22 @@ function set(d: ParamDef, value: ParamValue, commit: boolean) {
 }
 const fmt = (d: ParamDef, v: ParamValue) => (d.type === 'ratio' ? `${Math.round((v as number) * 100)}%` : String(v))
 const onRange = (d: ParamDef, e: Event, commit: boolean) => set(d, Number((e.target as HTMLInputElement).value), commit)
+/** 数値入力欄（長さは cm で入力）。空・不正な値は無視 */
+function onNumber(d: ParamDef, e: Event, commit: boolean) {
+  const el = e.target as HTMLInputElement
+  const v = el.valueAsNumber
+  if (Number.isFinite(v)) set(d, d.type === 'length' ? v / 100 : v, commit)
+  // 確定時は丸めた実際の値に戻す
+  if (commit && target.value) el.value = String(numberValue(d, target.value.params[d.key]))
+}
+const numberValue = (d: ParamDef, v: ParamValue) => (d.type === 'length' ? Math.round((v as number) * 100) : (v as number))
+function reroll(d: ParamDef) {
+  if (d.type !== 'seed') return
+  const cur = target.value?.params[d.key]
+  let v = cur
+  while (v === cur) v = d.min + Math.floor(Math.random() * (d.max - d.min + 1))
+  set(d, v as number, true)
+}
 
 // 文字列は入力中の値を手元に持つ（空にすると形状は既定値になるが、入力欄まで書き換えると打ち直せないため）。
 // 確定（Enter・フォーカス外し）で履歴に積み、入力欄を実際の値（空なら既定値）に戻す
@@ -90,6 +106,21 @@ const autoLabel = computed(() => {
             @change="onRange(d, $event, true)"
           />
           <span class="value">{{ fmt(d, target.params[d.key]) }}</span>
+        </template>
+        <template v-else-if="d.type === 'length' || d.type === 'seed'">
+          <input
+            type="number"
+            :data-param="d.key"
+            :min="d.type === 'length' ? d.min * 100 : d.min"
+            :max="d.type === 'length' ? d.max * 100 : d.max"
+            :step="d.type === 'length' ? 5 : 1"
+            :value="numberValue(d, target.params[d.key])"
+            @input="onNumber(d, $event, false)"
+            @change="onNumber(d, $event, true)"
+            @keydown.enter="($event.target as HTMLInputElement).blur()"
+          />
+          <span v-if="d.type === 'length'" class="value">cm</span>
+          <button v-else class="reroll" title="別の形にする" @click.prevent="reroll(d)">🎲</button>
         </template>
         <input
           v-else-if="d.type === 'text'"
@@ -184,6 +215,26 @@ input[type='range'] {
 .wide {
   grid-column: span 2;
   min-width: 0;
+}
+input[type='number'] {
+  width: 100%;
+  min-width: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-variant-numeric: tabular-nums;
+}
+.reroll {
+  background: var(--button);
+  border: none;
+  border-radius: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.reroll:hover {
+  background: var(--button-hover);
 }
 input[type='text'] {
   background: var(--panel-2);
