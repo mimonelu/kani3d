@@ -110,16 +110,33 @@ describe('岩', () => {
     }
     for (const [width, height, depth] of dims) {
       for (let seed = 1; seed <= 10; seed++) {
-        for (const detail of [6, 24, 120]) {
-          const base = normals({ width, height, depth, seed, detail, roughness: 0, jitter: 0 })
-          const moved = normals({ width, height, depth, seed, detail, roughness: 1, jitter: 1 })
-          const label = JSON.stringify({ width, height, depth, seed, detail })
+        for (const detail of [6, 24, 120]) for (const half of [false, true]) {
+          const base = normals({ width, height, depth, seed, detail, half, roughness: 0, jitter: 0 })
+          const moved = normals({ width, height, depth, seed, detail, half, roughness: 1, jitter: 1 })
+          const label = JSON.stringify({ width, height, depth, seed, detail, half })
           expect(moved.length, label).toBe(base.length)
           for (let i = 0; i < base.length; i++) expect(moved[i].dot(base[i]), label).toBeGreaterThan(0)
         }
       }
     }
   }, 30_000)
+
+  it('半分: 底面は y=0 の平らな 1 ポリゴンで、高さは指定どおり', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const g = buildPrimitiveGeometry('rock', { half: true, height: 0.6, seed, roughness: 1, jitter: 1 })
+      const pos = g.getAttribute('position')
+      const idx = g.index!.array
+      const ids = polyIdsOf(g)
+      const bottom = new Set<number>()
+      for (let t = 0; t < idx.length / 3; t++) {
+        const ys = [0, 1, 2].map((k) => pos.getY(idx[t * 3 + k]))
+        if (ys.every((y) => Math.abs(y + 0.3) < 1e-6)) bottom.add(ids[t])
+      }
+      expect(bottom.size).toBe(1)
+      expect(g.boundingBox!.min.y).toBeCloseTo(-0.3, 6)
+      expect(g.boundingBox!.max.y).toBeCloseTo(0.3, 6)
+    }
+  })
 
   it('寸法を少し変えても面のつながりは同じ（なめらかに伸び縮み）', () => {
     const tris = (width: number) => buildPrimitiveGeometry('rock', { width, seed: 5 }).index!.count

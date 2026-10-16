@@ -185,26 +185,36 @@ function mulberry32(seed: number): () => number {
  * 岩: 楕円体の表面にほぼ等間隔に点を置いて面を張り、頂点をランダムにずらす。
  * 寸法の比で引き伸ばさないよう点は楕円体の上でならし、揺れ幅は点の間隔を基準にする（どの縦横比でも面の大きさ・凸凹がそろう）。
  * 面のつながりはずらす前の点（凸な楕円体の上なのですべて凸包の頂点になる）で決めるので、点が無駄にならず、へこみも作れる。
- * 点の数・乱数列は寸法に依存しないので、寸法を変えても同じ岩がなめらかに伸び縮みする
+ * 点の数・乱数列は寸法に依存しないので、寸法を変えても同じ岩がなめらかに伸び縮みする。
+ * 半分なら楕円体の上半分（高さ＝半径）に点を置き、底の縁（y=0 の楕円）にも点を並べて、底面は中心からの扇形で平らに張る
  */
 function rockGeometry(p: PrimitiveParams): BufferGeometry {
-  const r = [num(p, 'width') / 2, num(p, 'height') / 2, num(p, 'depth') / 2]
+  const half = !!p.half
+  const r = [num(p, 'width') / 2, num(p, 'height') / (half ? 1 : 2), num(p, 'depth') / 2]
   const n = num(p, 'detail')
   const rand = mulberry32(num(p, 'seed') * 0x9e3779b1)
   // 楕円体の表面積（Knud Thomsen の近似）→ 点 1 つあたりの間隔
   const k = 1.6075
   const [a, b, c] = r.map((v) => Math.pow(v, k))
-  const area = 4 * Math.PI * Math.pow((a * b + a * c + b * c) / 3, 1 / k)
+  const area = (half ? 2 : 4) * Math.PI * Math.pow((a * b + a * c + b * c) / 3, 1 / k)
   const spacing = Math.sqrt(area / n)
   const project = (v: Vector3) => v.divideScalar(Math.hypot(v.x / r[0], v.y / r[1], v.z / r[2]))
   const normalAt = (v: Vector3) => new Vector3(v.x / r[0] ** 2, v.y / r[1] ** 2, v.z / r[2] ** 2).normalize()
   // フィボナッチ球を楕円体へ写した初期配置
   const golden = Math.PI * (3 - Math.sqrt(5))
   const pts = Array.from({ length: n }, (_, i) => {
-    const y = 1 - (2 * (i + 0.5)) / n
+    const y = 1 - ((half ? 1 : 2) * (i + 0.5)) / n
     const s = Math.sqrt(1 - y * y)
     return new Vector3(Math.cos(i * golden) * s * r[0], y * r[1], Math.sin(i * golden) * s * r[2])
   })
+  // 半分: 底の縁の点（角度順。数は細かさだけで決める＝半球なら上の点とほぼ同じ間隔になる数）
+  const rimCount = half ? Math.max(3, Math.round(Math.sqrt(2 * Math.PI * n))) : 0
+  for (let j = 0; j < rimCount; j++) {
+    const a = (2 * Math.PI * (j + 0.5)) / rimCount
+    pts.push(new Vector3(Math.cos(a) * r[0], 0, Math.sin(a) * r[2]))
+  }
+  const isRim = (i: number) => i >= n
+  const total = pts.length
   // 近い点どうしを接平面の方向に押し離して楕円体の上に戻す（回数固定・なめらかな力なので寸法に対して連続）。
   // 距離には法線の違いも足す（薄い形で表と裏の点が厚み越しに押し合うと、全部が縁に集まって平らな輪になるため）
   const reach = spacing * 2
@@ -212,8 +222,8 @@ function rockGeometry(p: PrimitiveParams): BufferGeometry {
   for (let it = 0; it < RELAX_STEPS; it++) {
     const push = pts.map(() => new Vector3())
     const nrms = pts.map(normalAt)
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
+    for (let i = 0; i < total; i++) {
+      for (let j = i + 1; j < total; j++) {
         d.subVectors(pts[i], pts[j])
         const len = Math.hypot(d.length(), nrms[i].distanceTo(nrms[j]) * spacing)
         if (len >= reach || len < 1e-12) continue
@@ -222,10 +232,13 @@ function rockGeometry(p: PrimitiveParams): BufferGeometry {
         push[j].addScaledVector(d, -f)
       }
     }
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < total; i++) {
       const nrm = nrms[i]
       push[i].addScaledVector(nrm, -push[i].dot(nrm))
-      project(pts[i].addScaledVector(push[i], spacing * RELAX_RATE))
+      if (isRim(i)) push[i].y = 0 // 縁の点は縁に沿ってだけ動く
+      const q = pts[i].addScaledVector(push[i], spacing * RELAX_RATE)
+      if (half && q.y < 0) q.y = isRim(i) ? 0 : -q.y
+      project(q)
     }
   }
   // 面のつながり
@@ -238,19 +251,33 @@ function rockGeometry(p: PrimitiveParams): BufferGeometry {
       loop.push(index.get(e.head().point)!)
       e = e.next
     } while (e !== f.edge)
+    if (loop.every(isRim)) continue // 底面は下で張る
     for (let i = 1; i + 1 < loop.length; i++) tris.push(loop[0], loop[i], loop[i + 1])
+  }
+  // 半分: 底面は中心の点からの扇形（縁を揺らしても、扇が裏返らない限り重ならない）。
+  // 縁の点はならす間に（細長い楕円では特に）追い越し合うことがあるので、角度順に並べ直してから張る
+  if (half) {
+    const rim = Array.from({ length: rimCount }, (_, j) => n + j)
+    rim.sort((i, j) => Math.atan2(pts[i].z / r[2], pts[i].x / r[0]) - Math.atan2(pts[j].z / r[2], pts[j].x / r[0]))
+    const center = pts.push(new Vector3()) - 1
+    for (let j = 0; j < rimCount; j++) tris.push(center, rim[j], rim[(j + 1) % rimCount])
   }
   // 揺らす: 接線方向（面の形を不揃いに）と法線方向（凸凹）。
   // 薄い軸の方向の揺れは厚みに合わせて抑える（表と裏がすれ違って裏返らないように）
   const rough = num(p, 'roughness') * ROCK_ROUGH * spacing
   const jitter = num(p, 'jitter') * ROCK_JITTER * spacing
   const thin = new Vector3(...r.map((v) => Math.min(1, (v * 0.3) / spacing)))
-  const offset = pts.map((q) => {
+  // 半分では底が平らなまま・上の点が底より下に出ないように: 縁の点は水平にだけ、上の点は下へは高さの半分まで
+  const offset = pts.map((q, i) => {
     const v = new Vector3(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1)
     const h = rand() * 2 - 1
+    if (i >= total) return new Vector3() // 底面の中心
     const nrm = normalAt(q)
     v.addScaledVector(nrm, -v.dot(nrm))
-    return v.multiplyScalar(jitter).addScaledVector(nrm, h * rough).multiply(thin)
+    const o = v.multiplyScalar(jitter).addScaledVector(nrm, h * rough).multiply(thin)
+    if (isRim(i)) o.y = 0
+    else if (half) o.y = Math.max(o.y, -q.y / 2)
+    return o
   })
   // 揺らす前から大きく傾いた（裏返り・折れ返りかけた）面があれば、その頂点の揺れを半分にして繰り返す（細い三角形のそばなど）
   const faceNormal = (v: (i: number) => Vector3, t: number) =>
@@ -414,6 +441,7 @@ export const PRIMITIVES: readonly PrimitiveDef[] = [
       { key: 'roughness', label: '凸凹', type: 'ratio', min: 0, max: 1, step: 0.05, default: 0.5 },
       { key: 'jitter', label: '不揃い', type: 'ratio', min: 0, max: 1, step: 0.05, default: 0.5 },
       { key: 'seed', label: '乱数', type: 'seed', min: 1, max: 9999, default: 1 },
+      half('半分'),
     ],
     size: (p) => [num(p, 'width'), num(p, 'height'), num(p, 'depth')],
     smooth: () => false,
