@@ -595,3 +595,29 @@ test('選択中に追加: 接触面に合わせて拡縮（5cm 単位で切り�
   // 面が 5cm 未満でも最小 5cm
   expect(await add('cube', [1, 6, 2], [0.03, 1, 0.03])).toEqual([0.05, 0.05, 0.05])
 })
+
+test('複製: カメラ側の面の外へ選択範囲の大きさ分ずらす', async ({ page }) => {
+  const dup = (cam: number[]) =>
+    page.evaluate((cam) => {
+      const k = (window as any).__kani
+      k.newScene()
+      const a = k.addPrimitive('cube') // 原点、1m
+      k.camera.position.set(...cam)
+      k.orbit.target.set(0, 0.5, 0)
+      k.orbit.update()
+      k.setSelection([a])
+      k.duplicateSelected()
+      const d = k.toData()
+      return { n: d.length, p: d[1].position.map((v: number) => +v.toFixed(4)), q: d[1].quaternion }
+    }, cam)
+  let r = await dup([1, 2, 5]) // 正面 +Z
+  expect(r.n).toBe(2)
+  expect(r.p).toEqual([0, 0.5, 1])
+  r = await dup([-5, 1.5, 1]) // 左 -X
+  expect(r.p).toEqual([-1, 0.5, 0])
+  r = await dup([1, 6, 2]) // 見下ろし: 上
+  expect(r.p).toEqual([0, 1.5, 0])
+  r = await dup([1, -6, 2]) // 見上げ: 下
+  expect(r.p).toEqual([0, -0.5, 0])
+  expect(r.q).toEqual([0, 0, 0, 1]) // 回転しない
+})

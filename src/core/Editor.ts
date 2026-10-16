@@ -621,12 +621,19 @@ export class Editor {
     this.commit()
   }
 
+  /** 選択物を複製し、カメラから見て一番こちらを向いている面の外側へ選択範囲の大きさ分ずらして並べる（向き・大きさはそのまま） */
   duplicateSelected(): void {
     if (!this.selection.length) return
     this.releasePivot()
+    const box = new Box3()
+    for (const id of this.selection) box.expandByObject(this.meshById(id)!, true)
+    const face = this.facingFace(box)
+    const axis = 'xyz'.indexOf(face[1])
+    const offset = [0, 0, 0]
+    offset[axis] = (face[0] === '+' ? 1 : -1) * (box.max.getComponent(axis) - box.min.getComponent(axis))
     const copies = this.selection.map((id) => {
       const d = { ...this.meshToData(this.meshById(id)!), id: newId() }
-      d.position = [d.position[0] + GRID * 2, d.position[1], d.position[2] + GRID * 2]
+      d.position = [d.position[0] + offset[0], d.position[1] + offset[1], d.position[2] + offset[2]]
       this.objectRoot.add(this.buildMesh(d))
       return d.id
     })
