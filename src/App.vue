@@ -43,7 +43,7 @@ function onKey(e: KeyboardEvent) {
       if (k === 'd') return ed.duplicateSelected(), true
       if (k === 'g') return e.shiftKey ? ed.unmergeSelected() : toggleMerge(), true
       if (k === 'a') return ed.selectAll(), true
-      if (k === 's') return saveScene(), true
+      if (k === 's') return saveScene(e.shiftKey), true
       if (k === 'o') return requestOpen(), true
       return false
     }

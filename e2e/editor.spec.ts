@@ -155,7 +155,11 @@ test('クリックで選択解除・全選択・結合', async ({ page }) => {
   expect(groups.sort((a: number, b: number) => a - b)).toEqual([0, 11])
 })
 
-test('保存→読み込み、GLB 出力', async ({ page }) => {
+test('保存→読み込み、GLB 出力（File System Access API 非対応時はダウンロード）', async ({ page }) => {
+  await page.evaluate(() => {
+    delete (window as any).showSaveFilePicker
+    delete (window as any).showOpenFilePicker
+  })
   await page.locator('[data-primitive="sphere"]').click()
   await page.locator('[data-primitive="cone"]').click()
 
@@ -176,6 +180,44 @@ test('保存→読み込み、GLB 出力', async ({ page }) => {
   expect(glb.suggestedFilename()).toMatch(/\.glb$/)
   const buf = await readFile(await glb.path())
   expect(buf.subarray(0, 4).toString()).toBe('glTF')
+})
+
+test('File System Access API: 2 回目以降の保存は同じファイルに上書き、名前を変えたら別ファイル', async ({ page }) => {
+  // 保存ピッカーをモック。返したハンドルへの書き込みを記録する
+  await page.evaluate(() => {
+    const w = window as any
+    w.__writes = [] as { name: string; text: string }[]
+    w.__picks = 0
+    const handle = (name: string) => ({
+      name,
+      queryPermission: async () => 'granted',
+      createWritable: async () => {
+        let text = ''
+        return { write: async (t: string) => void (text += t), close: async () => void w.__writes.push({ name, text }) }
+      },
+    })
+    w.showSaveFilePicker = async (o: { suggestedName: string }) => (w.__picks++, handle(o.suggestedName))
+  })
+  const writes = () => page.evaluate(() => (window as any).__writes as { name: string; text: string }[])
+  const picks = () => page.evaluate(() => (window as any).__picks as number)
+  const save = page.getByRole('button', { name: '保存' })
+
+  await page.locator('[data-primitive="cube"]').click()
+  await save.click()
+  await expect.poll(async () => (await writes()).length).toBe(1)
+  await page.locator('[data-primitive="sphere"]').click()
+  await page.keyboard.press('Control+s')
+  await expect.poll(async () => (await writes()).length).toBe(2)
+  expect(await picks()).toBe(1) // 2 回目はピッカーを出さず上書き
+  const w = await writes()
+  expect(w.map((x) => x.name)).toEqual(['untitled.kani', 'untitled.kani'])
+  expect(JSON.parse(w[1].text).objects).toHaveLength(2)
+
+  await page.locator('input.name').fill('other')
+  await save.click()
+  await expect.poll(picks).toBe(2) // 名前を変えたら保存先を選び直す
+  await page.keyboard.press('Control+Shift+s')
+  await expect.poll(picks).toBe(3) // 別名で保存
 })
 
 test('結合物の検査結果表示と X線表示（GLB には影響しない）', async ({ page }) => {

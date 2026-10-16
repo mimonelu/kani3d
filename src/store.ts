@@ -136,25 +136,65 @@ export function notify(message: string, ms = 2500): void {
   }, ms)
 }
 
+/**
+ * 開いた／保存したファイルのハンドル（File System Access API 対応ブラウザのみ）。
+ * あれば保存はこのファイルへの上書きになる。ファイル名欄を書き換えたら別ファイル扱い
+ */
+let fileHandle: FileSystemFileHandle | null = null
+const stem = (name: string) => name.replace(/\.(kani|json)$/i, '')
+
+const PICKER_TYPES = [{ description: 'kani3d シーン', accept: { 'application/json': [FILE_EXT] } }]
+
 export function newScene(): void {
   editorRef.value?.newScene()
   ui.banner = null
   ui.fileName = 'untitled'
+  fileHandle = null
 }
 
 /** ダウンロード用ファイル名（パス区切りや使用できない文字を除去） */
 const safeName = () => ui.fileName.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim() || 'untitled'
 
-export function saveScene(): void {
+/** 保存。開いた／保存済みのファイルがあれば上書き、なければ保存先を選ぶ（非対応ブラウザはダウンロード） */
+export async function saveScene(saveAs = false): Promise<void> {
   const ed = editorRef.value
   if (!ed) return
-  downloadBlob(stringifyDoc(ed.toDoc()), safeName() + FILE_EXT, 'application/json')
+  const text = stringifyDoc(ed.toDoc())
+  if (!window.showSaveFilePicker) return downloadBlob(text, safeName() + FILE_EXT, 'application/json')
+  try {
+    let handle = !saveAs && fileHandle && stem(fileHandle.name) === ui.fileName ? fileHandle : null
+    if (handle && (await handle.queryPermission?.({ mode: 'readwrite' })) === 'prompt')
+      if ((await handle.requestPermission?.({ mode: 'readwrite' })) !== 'granted') handle = null
+    handle ??= await window.showSaveFilePicker({ suggestedName: safeName() + FILE_EXT, types: PICKER_TYPES })
+    const w = await handle.createWritable()
+    await w.write(text)
+    await w.close()
+    fileHandle = handle
+    ui.fileName = stem(handle.name)
+    notify(`${handle.name} に保存しました`)
+  } catch (e) {
+    if ((e as DOMException).name === 'AbortError') return
+    notify(`保存失敗: ${(e as Error).message}`)
+  }
 }
 
-export async function openSceneFile(file: File): Promise<void> {
+/** 開くファイルを選ぶ。対応ブラウザではハンドルを保持して以後の保存を上書きにする。false なら <input type=file> で選ばせる */
+export async function pickSceneFile(): Promise<boolean> {
+  if (!window.showOpenFilePicker) return false
+  try {
+    const [handle] = await window.showOpenFilePicker({ types: PICKER_TYPES })
+    await openSceneFile(await handle.getFile(), handle)
+  } catch (e) {
+    if ((e as DOMException).name !== 'AbortError') notify(`読み込み失敗: ${(e as Error).message}`)
+  }
+  return true
+}
+
+export async function openSceneFile(file: File, handle: FileSystemFileHandle | null = null): Promise<void> {
   try {
     editorRef.value?.loadDoc(parseDoc(await file.text()))
-    ui.fileName = file.name.replace(/\.(kani|json)$/i, '')
+    ui.fileName = stem(file.name)
+    fileHandle = handle
     ui.banner = null
     notify(`${file.name} を読み込みました`)
   } catch (e) {

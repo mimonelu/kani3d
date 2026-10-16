@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { FILE_EXT } from '../core/io'
-import { editorRef, exportGlbFile, mergeMode, newScene, openSceneFile, optimizeMode, toggleOptimize, saveScene, state, toggleFlatShading, toggleMerge, ui } from '../store'
+import { editorRef, exportGlbFile, mergeMode, newScene, openSceneFile, optimizeMode, pickSceneFile, toggleOptimize, saveScene, state, toggleFlatShading, toggleMerge, ui } from '../store'
 
 const fileInput = ref<HTMLInputElement>()
 
@@ -11,8 +11,9 @@ function onFile(e: Event) {
   if (f) openSceneFile(f)
   input.value = ''
 }
-function openFile() {
-  if (state.objectCount === 0 || confirm('現在のシーンを破棄してファイルを開きますか？')) fileInput.value?.click()
+async function openFile() {
+  if (state.objectCount !== 0 && !confirm('現在のシーンを破棄してファイルを開きますか？')) return
+  if (!(await pickSceneFile())) fileInput.value?.click()
 }
 watch(() => ui.openRequest, openFile)
 
@@ -28,7 +29,7 @@ function confirmNew() {
     <div class="group">
       <button @click="confirmNew">新規</button>
       <button @click="openFile" title="Ctrl+O">開く</button>
-      <button @click="saveScene" title="Ctrl+S">保存</button>
+      <button @click="saveScene()" title="Ctrl+S（別名保存は Ctrl+Shift+S）">保存</button>
       <button @click="exportGlbFile">GLB出力</button>
       <button title="レンダリング結果を PNG で保存" @click="ui.renderOpen = true">画像出力</button>
       <input ref="fileInput" type="file" :accept="`${FILE_EXT},.json`" hidden @change="onFile" />

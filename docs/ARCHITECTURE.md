@@ -39,7 +39,7 @@ three.js オブジェクトは Vue のリアクティブにしない（`markRaw`
 | ツールバー / 右パネル / ビューポート HUD / ヘルプ | `components/ToolBar.vue` / `SidePanel.vue` / `ViewportPane.vue` / `HelpDialog.vue` |
 | UI 配色（ダークテーマ） | `style.css` の CSS 変数、シーン背景・グリッド色は `Editor.setupLightsAndGround` |
 | 画像出力（PNG） | `Editor.renderImage / renderPng / presetCamera`（専用の WebGLRenderer で描画。「全体を収める」は全頂点を投影して余白 px ちょうどに収まるカメラ位置を解析的に求める。選択枠・ハンドル・X線・ペイント強調は隠し、グリッドは任意）、UI は `components/RenderDialog.vue` |
-| ファイル操作・自動保存（localStorage） | `store.ts`（`Editor.revision` が変わったときだけ保存。読めない自動保存は `kani3d:autosave.bak` に退避） |
+| ファイル操作・自動保存（localStorage） | `store.ts`（保存は File System Access API 対応ブラウザなら開いた／保存したファイルへ上書き、ファイル名欄を変えると別ファイル扱い。非対応ならダウンロード。`Editor.revision` が変わったときだけ保存。読めない自動保存は `kani3d:autosave.bak` に退避） |
 
 ## データモデル
 - 永続データは `SceneObjectData`（`types.ts`）: `primitive`（種類＋単色）か `mesh`（結合結果の頂点データ `MeshData`）。どちらも position / quaternion / scale を持つ。

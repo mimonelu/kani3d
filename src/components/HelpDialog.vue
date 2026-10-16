@@ -30,7 +30,7 @@ const keys: [string, string][] = [
   ['F', '選択物が映るようにカメラを合わせる'],
   ['Home / Shift+F', 'すべてのオブジェクトが映るようにカメラを合わせる'],
   ['Ctrl+Z / Ctrl+Shift+Z・Ctrl+Y', '元に戻す / やり直し'],
-  ['Ctrl+S / Ctrl+O', '保存 / 開く'],
+  ['Ctrl+S / Ctrl+Shift+S / Ctrl+O', '保存（上書き） / 別名で保存 / 開く'],
   ['Esc（ドラッグ中）', '操作を取り消す'],
   ['?', 'このヘルプ'],
 ]
